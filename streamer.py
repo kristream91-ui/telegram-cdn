@@ -24,7 +24,7 @@ from pyrogram.session import Auth, Session
 log = logging.getLogger("tgcdn.streamer")
 
 CHUNK_SIZE = 1024 * 1024  # 1 MiB — the max GetFile limit
-ALIGNMENT = 4096          # GetFile offsets must be divisible by this
+ALIGNMENT = 4096          # GetFile offsets AND limits must be multiples of this
 PREFETCH = 3              # chunks kept in flight for smooth playback
 PROBE_CAP = 1 << 40       # sanity cap while searching for EOF (1 TB)
 
@@ -239,13 +239,15 @@ class TelegramStreamer:
         """Find (file_size, mime_type) for a file_id using tiny GetFile calls.
 
         First it sniffs the file header for the mime type, then binary-searches
-        for the exact end of the file (each probe fetches just 1 byte).
+        for the exact end of the file (each probe fetches one 4 KiB block).
         """
         fid = FileId.decode(file_id)
         location = self._location(fid)
         session = await self._get_media_session(fid.dc_id)
 
-        async def peek(offset: int, limit: int = 1) -> bytes:
+        async def peek(offset: int, limit: int = ALIGNMENT) -> bytes:
+            # NOTE: Telegram requires limit to be a multiple of 4096 (and <= 1MB),
+            # so we can't probe with limit=1.
             r = await session.invoke(
                 functions.upload.GetFile(
                     location=location, offset=offset, limit=limit
