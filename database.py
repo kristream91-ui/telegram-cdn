@@ -82,6 +82,15 @@ class Database:
             ).fetchone()
         return row
 
+    def find_by_file_id(self, file_id: str):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM files WHERE file_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (file_id,),
+            ).fetchone()
+        return row
+
     def update_file_id(self, uuid: str, file_id: str, thumb_file_id=None):
         with self._lock:
             self._conn.execute(

@@ -166,6 +166,13 @@ class TelegramStreamer:
         skip = start - offset
         remaining = None if end is None else end - start + 1
 
+        # Telegram requires each GetFile request to stay inside a single
+        # 1 MiB block of the file: offset % 4096 == 0, limit % 4096 == 0,
+        # and offset/(1MB) == (offset+limit-1)/(1MB). So a request from an
+        # unaligned offset gets a shorter first part.
+        def part_limit(off: int) -> int:
+            return min(CHUNK_SIZE, CHUNK_SIZE - (off % CHUNK_SIZE))
+
         cdn_redirect = None
         cdn_session = None
 
@@ -174,7 +181,7 @@ class TelegramStreamer:
             if cdn_redirect is None:
                 r = await session.invoke(
                     functions.upload.GetFile(
-                        location=location, offset=off, limit=CHUNK_SIZE
+                        location=location, offset=off, limit=part_limit(off)
                     ),
                     sleep_threshold=30,
                 )
@@ -191,27 +198,28 @@ class TelegramStreamer:
         inflight: dict = {}
 
         def prime(off: int):
-            for i in range(PREFETCH):
-                o = off + i * CHUNK_SIZE
-                if end is not None and o > end:
+            for _ in range(PREFETCH):
+                if end is not None and off > end:
                     break
-                if o not in inflight:
-                    inflight[o] = asyncio.ensure_future(fetch(o))
+                if off not in inflight:
+                    inflight[off] = asyncio.ensure_future(fetch(off))
+                off += part_limit(off)
 
         try:
             prime(offset)
             while True:
-                task = inflight.pop(offset, None)
+                cur = offset
+                task = inflight.pop(cur, None)
                 if task is None:
-                    task = asyncio.ensure_future(fetch(offset))
+                    task = asyncio.ensure_future(fetch(cur))
 
                 raw = await task
                 if not raw:
                     return
-                offset += CHUNK_SIZE
+                offset += len(raw)
                 prime(offset)  # keep the pipeline full while we send this chunk
 
-                eof = len(raw) < CHUNK_SIZE
+                eof = len(raw) < part_limit(cur)
                 if skip:
                     raw = raw[skip:]
                     skip = 0
@@ -246,8 +254,8 @@ class TelegramStreamer:
         session = await self._get_media_session(fid.dc_id)
 
         async def peek(offset: int, limit: int = ALIGNMENT) -> bytes:
-            # NOTE: Telegram requires limit to be a multiple of 4096 (and <= 1MB),
-            # so we can't probe with limit=1.
+            # NOTE: limit must be a multiple of 4096, <= 1MB, and the whole
+            # request must stay inside one 1MB block of the file.
             r = await session.invoke(
                 functions.upload.GetFile(
                     location=location, offset=offset, limit=limit
@@ -281,7 +289,7 @@ class TelegramStreamer:
                 lo = mid
             else:
                 hi = mid
-        size = lo + len(await peek(lo, CHUNK_SIZE))
+        size = lo + len(await peek(lo, ALIGNMENT))  # tail is always <= 4096
         return size, mime
 
     # ------------------------------------------------------------------ #
