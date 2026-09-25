@@ -1,0 +1,23 @@
+# Render.com blueprint — deploy StreamVault in one click.
+# Usage: Render dashboard -> New -> Blueprint -> select this repo.
+# The `sync: false` vars are prompted for (or set them in the dashboard).
+
+services:
+  - type: web
+    name: telegram-cdn
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.4
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: BASE_URL
+        sync: false
