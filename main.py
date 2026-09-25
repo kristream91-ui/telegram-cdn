@@ -104,6 +104,24 @@ async def refresh_file_id(row) -> str:
     return rec["file_id"]
 
 
+async def ensure_metadata(row, force=False):
+    """If mime/size are unknown (manual file_id adds), probe Telegram for them.
+    Without this the watch page can't show a video player or allow seeking."""
+    if row is None or streamer is None:
+        return row
+    if not force and row["mime_type"] and row["file_size"]:
+        return row
+    try:
+        size, mime = await asyncio.wait_for(
+            streamer.probe_file(row["file_id"]), timeout=30
+        )
+        db.update_meta(row["uuid"], mime, size)
+        return db.get(row["uuid"])
+    except Exception as e:
+        log.warning("Probe failed for %s: %s", row["uuid"], e)
+        return row
+
+
 def parse_range(header: str, size: int):
     """Parse a Range header, returns (start, end) inclusive or None."""
     try:
@@ -300,6 +318,7 @@ async def get_file(uuid: str):
     row = db.get(uuid)
     if not row:
         raise HTTPException(404, "File not found")
+    row = await ensure_metadata(row)   # one-time: fills in mime/size if missing
     return row_to_json(row)
 
 
@@ -319,7 +338,13 @@ async def add_file(body: dict):
         mime_type=body.get("mime_type") or "",
         caption="",
     )
-    return {"uuid": uuid, "watch": f"{Config.BASE_URL}/#/watch/{uuid}"}
+    # Auto-detect mime + size straight from Telegram (a few seconds, one-time)
+    row = await ensure_metadata(db.get(uuid))
+    return {
+        "uuid": uuid,
+        "watch": f"{Config.BASE_URL}/#/watch/{uuid}",
+        "detected": {"mime": row["mime_type"], "size": row["file_size"]} if row else None,
+    }
 
 
 @app.delete("/api/files/{uuid}")

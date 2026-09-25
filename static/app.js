@@ -65,6 +65,28 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
 }
 
+function cardHTML(f, showProgress = false) {
+  let progress = "";
+  if (showProgress) {
+    const p = getPos(f.uuid);
+    if (p && p.pos > 10 && p.pos < p.dur - 30) {
+      progress = `<div class="progress"><i style="width:${(p.pos / p.dur * 100).toFixed(1)}%"></i></div>`;
+    }
+  }
+  const badge = f.duration
+    ? `<span class="badge${kindOf(f) === "audio" ? " music" : ""}">${fmtDur(f.duration)}</span>` : "";
+  const img = f.has_thumb
+    ? `<img src="/thumb/${f.uuid}" loading="lazy"
+           onerror="this.remove()">` : "";
+  return `
+    <a class="card" href="#/watch/${f.uuid}">
+      <div class="poster">${iconOf(f)}${img}${badge}</div>
+      ${progress}
+      <div class="title" title="${esc(f.name)}">${esc(f.name)}</div>
+      <div class="sub">${fmtSize(f.size)} · ${kindOf(f)}</div>
+    </a>`;
+}
+
 function renderHome() {
   const q = $("#search").value.trim().toLowerCase();
   const kind = activeKind;
@@ -139,7 +161,7 @@ async function renderWatch(uuid) {
   let player = "";
 
   if (k === "video") {
-    player = `<div class="player-wrap"><video id="player" controls playsinline
+    player = `<div class="player-wrap"><video id="player" controls playsinline preload="metadata"
       ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
       src="/stream/${uuid}"></video></div>`;
   } else if (k === "audio") {
@@ -198,28 +220,6 @@ async function renderWatch(uuid) {
       prompt("Copy this link:", link);
     }
   });
-}
-
-function cardHTML(f, showProgress = false) {
-  let progress = "";
-  if (showProgress) {
-    const p = getPos(f.uuid);
-    if (p && p.pos > 10 && p.pos < p.dur - 30) {
-      progress = `<div class="progress"><i style="width:${(p.pos / p.dur * 100).toFixed(1)}%"></i></div>`;
-    }
-  }
-  const badge = f.duration
-    ? `<span class="badge${kindOf(f) === "audio" ? " music" : ""}">${fmtDur(f.duration)}</span>` : "";
-  const img = f.has_thumb
-    ? `<img src="/thumb/${f.uuid}" loading="lazy"
-           onerror="this.remove()">` : "";
-  return `
-    <a class="card" href="#/watch/${f.uuid}">
-      <div class="poster">${iconOf(f)}${img}${badge}</div>
-      ${progress}
-      <div class="title" title="${esc(f.name)}">${esc(f.name)}</div>
-      <div class="sub">${fmtSize(f.size)} · ${kindOf(f)}</div>
-    </a>`;
 }
 
 /* ------------------------------------------------------------------ */
