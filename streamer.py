@@ -4,8 +4,13 @@ Streams any file directly from Telegram's data centers to an HTTP response
 using only its bot-API file_id — nothing is written to disk. Supports HTTP
 byte ranges (so video seeking works) and encrypted Telegram CDN redirects
 (the same mechanism Pyrogram's own downloader uses).
+
+Also probes files (binary-search for EOF + magic-byte sniffing) so manually
+added file_ids get a proper mime type and size — without them the web UI
+can't show a video player.
 """
 
+import asyncio
 import logging
 from typing import AsyncGenerator, Optional
 
@@ -20,6 +25,49 @@ log = logging.getLogger("tgcdn.streamer")
 
 CHUNK_SIZE = 1024 * 1024  # 1 MiB — the max GetFile limit
 ALIGNMENT = 4096          # GetFile offsets must be divisible by this
+PREFETCH = 3              # chunks kept in flight for smooth playback
+PROBE_CAP = 1 << 40       # sanity cap while searching for EOF (1 TB)
+
+
+def sniff_mime(head: bytes, fallback=None) -> str:
+    """Guess the mime type from the first bytes of a file."""
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        if head[8:12] in (b"M4A ", b"M4B ", b"M4P "):
+            return "audio/mp4"
+        return "video/mp4"
+    if head[:4] == bytes.fromhex("1a45dfa3"):          # EBML: mkv/webm
+        return "video/webm" if b"webm" in head[:64] else "video/x-matroska"
+    if head[:3] == b"ID3" or (
+        len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0
+    ):
+        return "audio/mpeg"
+    if head[:4] == b"OggS":
+        return "audio/ogg"
+    if head[:4] == b"fLaC":
+        return "audio/flac"
+    if head[:4] == b"RIFF" or head[:12] == b"RIFF" + head[4:8] + b"":
+        if head[8:12] == b"WAVE":
+            return "audio/wav"
+        if head[8:12] == b"AVI ":
+            return "video/x-msvideo"
+    if head[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:5] == b"%PDF-":
+        return "application/pdf"
+    if head[:2] == b"PK":
+        return "application/zip"
+    if fallback is not None:
+        return {
+            FileType.VIDEO: "video/mp4",
+            FileType.AUDIO: "audio/mpeg",
+            FileType.VOICE: "audio/ogg",
+            FileType.PHOTO: "image/jpeg",
+        }.get(fallback, "application/octet-stream")
+    return "application/octet-stream"
 
 
 class TelegramStreamer:
@@ -103,7 +151,11 @@ class TelegramStreamer:
     async def iter_file(
         self, file_id: str, start: int = 0, end: Optional[int] = None
     ) -> AsyncGenerator[bytes, None]:
-        """Yield bytes of the file in [start, end] (inclusive, end=None = EOF)."""
+        """Yield bytes of the file in [start, end] (inclusive, end=None = EOF).
+
+        Keeps up to PREFETCH chunks in flight so the browser gets data faster
+        than one Telegram round-trip at a time.
+        """
         fid = FileId.decode(file_id)
         location = self._location(fid)
         session = await self._get_media_session(fid.dc_id)
@@ -114,46 +166,123 @@ class TelegramStreamer:
         skip = start - offset
         remaining = None if end is None else end - start + 1
 
-        cdn_redirect = None  # set once Telegram moves us to its CDN
+        cdn_redirect = None
         cdn_session = None
 
-        while True:
+        async def fetch(off: int) -> bytes:
+            nonlocal cdn_redirect, cdn_session
             if cdn_redirect is None:
                 r = await session.invoke(
                     functions.upload.GetFile(
-                        location=location, offset=offset, limit=CHUNK_SIZE
+                        location=location, offset=off, limit=CHUNK_SIZE
                     ),
                     sleep_threshold=30,
                 )
                 if isinstance(r, types.upload.FileCdnRedirect):
-                    log.info("CDN redirect to DC %s for %s", r.dc_id, file_id[:16])
+                    log.info("CDN redirect to DC %s", r.dc_id)
                     cdn_redirect = r
                     cdn_session = await self._get_cdn_session(r.dc_id)
-                    continue
+                    return await fetch(off)
                 if not isinstance(r, types.upload.File):
                     raise RuntimeError(f"Unexpected GetFile result: {type(r).__name__}")
-                data = r.bytes
+                return r.bytes
+            return await self._cdn_chunk(session, cdn_redirect, cdn_session, off)
+
+        inflight: dict = {}
+
+        def prime(off: int):
+            for i in range(PREFETCH):
+                o = off + i * CHUNK_SIZE
+                if end is not None and o > end:
+                    break
+                if o not in inflight:
+                    inflight[o] = asyncio.ensure_future(fetch(o))
+
+        try:
+            prime(offset)
+            while True:
+                task = inflight.pop(offset, None)
+                if task is None:
+                    task = asyncio.ensure_future(fetch(offset))
+
+                raw = await task
+                if not raw:
+                    return
+                offset += CHUNK_SIZE
+                prime(offset)  # keep the pipeline full while we send this chunk
+
+                eof = len(raw) < CHUNK_SIZE
+                if skip:
+                    raw = raw[skip:]
+                    skip = 0
+                if remaining is not None:
+                    if remaining <= 0:
+                        return
+                    if len(raw) > remaining:
+                        raw = raw[:remaining]
+                yield raw
+                if eof:
+                    return
+                if remaining is not None:
+                    remaining -= len(raw)
+                    if remaining <= 0:
+                        return
+        finally:
+            for t in inflight.values():
+                t.cancel()
+
+    # ------------------------------------------------------------------ #
+    #  Probing (for manually added file_ids)                              #
+    # ------------------------------------------------------------------ #
+
+    async def probe_file(self, file_id: str) -> tuple:
+        """Find (file_size, mime_type) for a file_id using tiny GetFile calls.
+
+        First it sniffs the file header for the mime type, then binary-searches
+        for the exact end of the file (each probe fetches just 1 byte).
+        """
+        fid = FileId.decode(file_id)
+        location = self._location(fid)
+        session = await self._get_media_session(fid.dc_id)
+
+        async def peek(offset: int, limit: int = 1) -> bytes:
+            r = await session.invoke(
+                functions.upload.GetFile(
+                    location=location, offset=offset, limit=limit
+                )
+            )
+            if isinstance(r, types.upload.FileCdnRedirect):
+                raise RuntimeError("CDN-redirected file cannot be probed")
+            return r.bytes
+
+        head = await peek(0, ALIGNMENT)
+        if not head:
+            raise RuntimeError("file is empty")
+        mime = sniff_mime(head, fallback=fid.file_type)
+
+        if len(head) < ALIGNMENT:
+            return len(head), mime
+
+        # Binary search for the largest 4096-aligned offset that still has
+        # data; invariant: peek(lo) non-empty, peek(hi) empty.
+        lo, hi = ALIGNMENT, ALIGNMENT * 2
+        while await peek(min(hi, PROBE_CAP)):
+            lo = hi
+            hi *= 2
+            if hi > PROBE_CAP:
+                break
+        while hi - lo > ALIGNMENT:
+            mid = ((lo + hi) // 2 // ALIGNMENT) * ALIGNMENT
+            if mid <= lo:
+                mid = lo + ALIGNMENT
+            if await peek(mid):
+                lo = mid
             else:
-                data = await self._cdn_chunk(session, cdn_redirect, cdn_session, offset)
+                hi = mid
+        size = lo + len(await peek(lo, CHUNK_SIZE))
+        return size, mime
 
-            if skip:
-                data = data[skip:]
-                skip = 0
-            if remaining is not None:
-                if remaining <= 0:
-                    return
-                if len(data) > remaining:
-                    data = data[:remaining]
-
-            yield data
-
-            if remaining is not None:
-                remaining -= len(data)
-                if remaining <= 0:
-                    return
-            if len(data) == 0:
-                return
-            offset += CHUNK_SIZE
+    # ------------------------------------------------------------------ #
 
     async def _cdn_chunk(
         self, session: Session, redirect, cdn_session: Session, offset: int

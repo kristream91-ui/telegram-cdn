@@ -91,6 +91,17 @@ class Database:
             )
             self._conn.commit()
 
+    def update_meta(self, uuid: str, mime_type=None, file_size=0):
+        """Fill in missing metadata (only overwrites empty fields)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE files SET mime_type = COALESCE(NULLIF(?, ''), mime_type), "
+                "file_size = CASE WHEN file_size = 0 THEN ? ELSE file_size END "
+                "WHERE uuid = ?",
+                (mime_type, file_size, uuid),
+            )
+            self._conn.commit()
+
     def list(self, q: str = "", kind: str = "", limit: int = 1000):
         sql, params = "SELECT * FROM files", []
         where = []
