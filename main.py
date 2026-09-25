@@ -331,6 +331,16 @@ async def add_file(body: dict):
         FileId.decode(file_id)
     except Exception:
         raise HTTPException(400, "This is not a valid Telegram file_id")
+
+    # Same file added before? Return the existing entry instead of a duplicate.
+    existing = db.find_by_file_id(file_id)
+    if existing is not None:
+        row = await ensure_metadata(existing)
+        return {
+            "uuid": existing["uuid"],
+            "watch": Config.BASE_URL + "/#/watch/" + existing["uuid"],
+            "detected": {"mime": row["mime_type"], "size": row["file_size"]} if row else None,
+        }
     uuid = db.add(
         file_id=file_id,
         file_name=body.get("file_name") or "",
