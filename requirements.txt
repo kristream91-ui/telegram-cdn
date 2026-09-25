@@ -1,0 +1,6 @@
+pyrogram==2.0.106
+fastapi>=0.110
+uvicorn[standard]>=0.29
+# Fast AES (drop-in C extension; plain `tgcrypto` has no wheels for Python 3.12+).
+# Optional — Pyrogram falls back to pure-Python AES without it.
+tgcrypto2
