@@ -104,6 +104,20 @@ async def refresh_file_id(row) -> str:
     return rec["file_id"]
 
 
+def _mp4_only(row, uuid: str):
+    """MP4-only mode: drop and reject anything that isn't an MP4 video."""
+    if row is None:
+        return
+    mime = row["mime_type"] or ""
+    if mime.startswith("video/mp4"):
+        return
+    db.delete(uuid)
+    if not mime or mime == "application/octet-stream":
+        raise HTTPException(
+            400, "Could not detect the format. Add a name with extension, e.g. Movie.mp4")
+    raise HTTPException(400, f"Only MP4 videos are supported. This file is: {mime}")
+
+
 EXT_MIME = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
     ".mkv": "video/x-matroska", ".webm": "video/webm", ".3gp": "video/3gpp",
@@ -260,6 +274,14 @@ def register_bot(client: Client):
 
     @client.on_message(filters.private & MEDIA_FILTER)
     async def on_private_file(c, m):
+        rec = extract_media(m)
+        if rec is not None and rec["mime_type"] != "video/mp4":
+            await m.reply(
+                f"\u274c Sirf MP4 videos support hain.\n"
+                f"Ye file: {rec['mime_type'] or 'unknown'}\n\n"
+                f"MP4 (H.264) video bhejo, turant index ho jayegi."
+            )
+            return
         uuid = await index_message(m)
         if uuid:
             await m.reply(
@@ -338,7 +360,10 @@ async def home():
 
 @app.get("/api/files")
 async def list_files(q: str = "", kind: str = ""):
-    return [row_to_json(r) for r in db.list(q=q, kind=kind)]
+    return [
+        row_to_json(r) for r in db.list(q=q, kind=kind)
+        if (r["mime_type"] or "").startswith("video/mp4")
+    ]
 
 
 @app.get("/api/files/{uuid}")
@@ -367,6 +392,7 @@ async def add_file(body: dict):
             db.update_name(existing["uuid"], body["file_name"])
             existing = db.get(existing["uuid"])
         row = await ensure_metadata(existing, force=True)
+        _mp4_only(row, existing["uuid"])
         return {
             "uuid": existing["uuid"],
             "watch": Config.BASE_URL + "/#/watch/" + existing["uuid"],
@@ -381,6 +407,7 @@ async def add_file(body: dict):
     )
     # Auto-detect mime + size straight from Telegram (a few seconds, one-time)
     row = await ensure_metadata(db.get(uuid))
+    _mp4_only(row, uuid)
     return {
         "uuid": uuid,
         "watch": f"{Config.BASE_URL}/#/watch/{uuid}",
