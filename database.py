@@ -100,6 +100,14 @@ class Database:
             )
             self._conn.commit()
 
+    def update_name(self, uuid: str, file_name: str):
+        with self._lock:
+            self._conn.execute(
+                "UPDATE files SET file_name = ? WHERE uuid = ?",
+                (file_name, uuid),
+            )
+            self._conn.commit()
+
     def update_meta(self, uuid: str, mime_type=None, file_size=0):
         """Fill in missing metadata (only overwrites empty fields)."""
         with self._lock:

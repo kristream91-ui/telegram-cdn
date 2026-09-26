@@ -104,22 +104,50 @@ async def refresh_file_id(row) -> str:
     return rec["file_id"]
 
 
+EXT_MIME = {
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska", ".webm": "video/webm", ".3gp": "video/3gpp",
+    ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".flv": "video/x-flv",
+    ".wmv": "video/x-ms-wmv", ".mpg": "video/mpeg", ".mpeg": "video/mpeg",
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".flac": "audio/flac",
+    ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
+    ".zip": "application/zip", ".apk": "application/vnd.android.package-archive",
+}
+
+
+def _unknown_mime(mime) -> bool:
+    return (not mime) or mime == "application/octet-stream"
+
+
 async def ensure_metadata(row, force=False):
     """If mime/size are unknown (manual file_id adds), probe Telegram for them.
-    Without this the watch page can't show a video player or allow seeking."""
+    Without this the watch page can't show a video player or allow seeking.
+    Falls back to the file's extension when the content sniffer can't tell."""
     if row is None or streamer is None:
         return row
-    if not force and row["mime_type"] and row["file_size"]:
+    if not force and row["file_size"] and not _unknown_mime(row["mime_type"]):
         return row
-    try:
-        size, mime = await asyncio.wait_for(
-            streamer.probe_file(row["file_id"]), timeout=30
-        )
-        db.update_meta(row["uuid"], mime, size)
-        return db.get(row["uuid"])
-    except Exception as e:
-        log.warning("Probe failed for %s: %s", row["uuid"], e)
-        return row
+
+    # 1) ask Telegram: magic-byte sniff + exact size
+    if not row["file_size"] or _unknown_mime(row["mime_type"]) or force:
+        try:
+            size, mime = await asyncio.wait_for(
+                streamer.probe_file(row["file_id"]), timeout=30
+            )
+            db.update_meta(row["uuid"], mime, size)
+            row = db.get(row["uuid"])
+        except Exception as e:
+            log.warning("Probe failed for %s: %s", row["uuid"], e)
+
+    # 2) fall back to the file extension, if the sniffer couldn't tell
+    if _unknown_mime(row["mime_type"]) and row["file_name"]:
+        ext = os.path.splitext(row["file_name"])[1].lower()
+        if ext in EXT_MIME:
+            db.update_meta(row["uuid"], EXT_MIME[ext], 0)
+            row = db.get(row["uuid"])
+    return row
 
 
 def parse_range(header: str, size: int):
@@ -335,7 +363,10 @@ async def add_file(body: dict):
     # Same file added before? Return the existing entry instead of a duplicate.
     existing = db.find_by_file_id(file_id)
     if existing is not None:
-        row = await ensure_metadata(existing)
+        if body.get("file_name"):
+            db.update_name(existing["uuid"], body["file_name"])
+            existing = db.get(existing["uuid"])
+        row = await ensure_metadata(existing, force=True)
         return {
             "uuid": existing["uuid"],
             "watch": Config.BASE_URL + "/#/watch/" + existing["uuid"],
