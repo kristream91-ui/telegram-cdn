@@ -129,8 +129,8 @@ function brandHeroHTML() {
     <div class="info">
       <img class="brand-logo-lg" src="/static/logo.webp" alt="Ani77">
       <h1>Stream Hindi Dub Anime<span class="badge-new">FREE</span></h1>
-      <p class="desc">Your personal OTT library, powered by Telegram. Send an MP4 to
-        the bot or add it with a file_id — and watch it right here, anywhere.</p>
+      <p class="desc">Your personal OTT library, powered by Telegram. Send an MP4 or TS
+        file to the bot or add it with a file_id — and watch it right here, anywhere.</p>
       <div class="cta">
         <a class="btn gold" href="#" id="heroAdd">＋ Add your first file</a>
       </div>
@@ -239,6 +239,7 @@ async function renderWatch(uuid) {
   }
 
   const badCodec = /hevc|ac-3|eac-3/i.test(f.codecs || "");
+  const isTS = (f.mime || "").toLowerCase() === "video/mp2t";
   const banner = badCodec
     ? `<div class="codec-banner">⚠️ <b>Codec: ${esc(f.codecs)}</b> — most browsers can't play this.
        If it doesn't start, download it and watch in MX Player / VLC.</div>` : "";
@@ -249,7 +250,7 @@ async function renderWatch(uuid) {
     ${banner}
     <div class="player-wrap"><video id="player" controls playsinline preload="metadata"
       ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
-      src="/stream/${uuid}"></video></div>
+      ${isTS ? "" : `src="/stream/${uuid}"`}></video></div>
 
     <div class="watch-head">
       <div>
@@ -286,18 +287,45 @@ async function renderWatch(uuid) {
       if (Date.now() - last > 5000) { last = Date.now(); savePos(uuid, p); }
     });
     p.addEventListener("pause", () => savePos(uuid, p));
-    p.addEventListener("error", () => {
+
+    function playerFail(title, msg) {
       const wrap = p.closest(".player-wrap");
       if (!wrap) return;
       wrap.innerHTML =
         '<div class="error-box" style="aspect-ratio:auto;padding:70px 20px">' +
         '<div class="icon">⚠️</div>' +
-        '<h2>Browser could not play this file</h2>' +
-        '<p>The codec isn\'t browser-supported' +
-        (f.codecs ? " (" + esc(f.codecs) + ")" : "") +
-        '. Download it and watch in MX Player / VLC.</p>' +
+        '<h2>' + title + '</h2>' +
+        '<p>' + msg + '</p>' +
         '<a class="btn gold" href="/download/' + uuid + '">⬇ Download</a></div>';
-    });
+    }
+
+    if (isTS) {
+      /* MPEG-TS container (anime files are often TS renamed to .mp4) —
+         the browser can't play it natively, so pipe it through mpegts.js */
+      if (window.mpegts && mpegts.getFeatureList().networkStreamIO) {
+        const player = mpegts.createPlayer(
+          { type: "mpegts", isLive: false, url: "/stream/" + uuid });
+        player.attachMediaElement(p);
+        player.on(mpegts.Events.ERROR, () => {
+          playerFail("Could not play this TS file",
+            "The video codec inside isn't browser-supported" +
+            (f.codecs ? " (" + esc(f.codecs) + ")" : "") +
+            ". Download it and watch in MX Player / VLC.");
+          try { player.destroy(); } catch { /* already gone */ }
+        });
+        player.load();
+      } else {
+        playerFail("TS player could not load",
+          "The streaming library failed to load — check your connection and reload the page, or download the file instead.");
+      }
+    } else {
+      p.addEventListener("error", () => {
+        playerFail("Browser could not play this file",
+          "The codec isn't browser-supported" +
+          (f.codecs ? " (" + esc(f.codecs) + ")" : "") +
+          ". Download it and watch in MX Player / VLC.");
+      });
+    }
   }
 
   $("#copyBtn").addEventListener("click", async () => {

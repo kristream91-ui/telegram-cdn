@@ -136,18 +136,25 @@ async def refresh_file_id(row) -> str:
     return rec["file_id"]
 
 
+def _is_streamable(mime) -> bool:
+    """Playable in the web player: MP4 (native <video>) and MPEG-TS
+    (via mpegts.js). Anime files are often TS streams renamed to .mp4."""
+    m = (mime or "").lower()
+    return m.startswith("video/mp4") or m == "video/mp2t"
+
+
 def _mp4_only(row, uuid: str):
-    """MP4-only mode: drop and reject anything that isn't an MP4 video."""
+    """Playable-videos-only mode: drop and reject anything else."""
     if row is None:
         return
     mime = row["mime_type"] or ""
-    if mime.startswith("video/mp4"):
+    if _is_streamable(mime):
         return
     db.delete(uuid)
     if not mime or mime == "application/octet-stream":
         raise HTTPException(
             400, "Could not detect the format. Add a name with extension, e.g. Movie.mp4")
-    raise HTTPException(400, f"Only MP4 videos are supported. This file is: {mime}")
+    raise HTTPException(400, f"Only MP4 / TS videos are supported. This file is: {mime}")
 
 
 EXT_MIME = {
@@ -182,8 +189,10 @@ async def ensure_metadata(row, force=False):
     won't actually play in a browser."""
     if row is None or streamer is None:
         return row
+    mime_known = (row["mime_type"] or "").lower()
     if (not force and row["file_size"]
-            and not _unknown_mime(row["mime_type"]) and _codecs_of(row)):
+            and not _unknown_mime(row["mime_type"])
+            and (_codecs_of(row) or mime_known == "video/mp2t")):
         return row
 
     # 1) ask Telegram: magic-byte sniff + exact size + codecs
@@ -198,15 +207,17 @@ async def ensure_metadata(row, force=False):
         except Exception as e:
             log.warning("Probe failed for %s: %s", row["uuid"], e)
     elif not _codecs_of(row):
-        # size/mime already known (bot-indexed) — quick 2-request codec sniff
+        # size/mime already known (bot-indexed) — full probe, because the
+        # Telegram mime label can lie (TS streams renamed to .mp4)
         try:
-            codecs = await asyncio.wait_for(
-                streamer.probe_codecs(row["file_id"], row["file_size"]), timeout=15
+            size, mime, codecs = await asyncio.wait_for(
+                streamer.probe_file(row["file_id"]), timeout=30
             )
+            db.update_meta(row["uuid"], mime, size)
             db.update_codecs(row["uuid"], codecs)
             row = db.get(row["uuid"])
         except Exception as e:
-            log.warning("Codec sniff failed for %s: %s", row["uuid"], e)
+            log.warning("Probe failed for %s: %s", row["uuid"], e)
 
     # 2) fall back to the file extension, if the sniffer couldn't tell
     if _unknown_mime(row["mime_type"]) and row["file_name"]:
@@ -329,24 +340,30 @@ def register_bot(client: Client):
     @client.on_message(filters.private & MEDIA_FILTER)
     async def on_private_file(c, m):
         rec = extract_media(m)
-        if rec is not None and rec["mime_type"] != "video/mp4":
+        rec_mime = (rec["mime_type"] or "") if rec is not None else ""
+        if rec is not None and not (_is_streamable(rec_mime) or _unknown_mime(rec_mime)):
             await m.reply(
-                f"\u274c Sirf MP4 videos support hain.\n"
+                f"\u274c Sirf MP4 / TS videos support hain.\n"
                 f"Ye file: {rec['mime_type'] or 'unknown'}\n\n"
-                f"MP4 (H.264) video bhejo, turant index ho jayegi."
+                f"MP4 (H.264) ya TS video bhejo, turant index ho jayegi."
             )
             return
         uuid = await index_message(m)
         if uuid:
             codecs = ""
             try:
-                row = db.get(uuid)
-                if row and row["file_size"]:
-                    codecs = await asyncio.wait_for(
-                        streamer.probe_codecs(row["file_id"], row["file_size"]),
-                        timeout=10,
+                row = await ensure_metadata(db.get(uuid))
+                if row and not _is_streamable(row["mime_type"]) \
+                        and not _unknown_mime(row["mime_type"]):
+                    db.delete(uuid)
+                    await m.reply(
+                        f"\u274c Ye file browser mein play nahi hogi.\n"
+                        f"Format: {row['mime_type']}\n\n"
+                        f"MP4 (H.264) ya TS video bhejo."
                     )
-                    db.update_codecs(uuid, codecs)
+                    return
+                if row:
+                    codecs = _codecs_of(row)
             except Exception:
                 pass
             codec_line = f"🎬 Codec: {codecs}\n" if codecs else ""
@@ -478,7 +495,7 @@ async def health():
 async def list_files(q: str = "", kind: str = ""):
     return [
         row_to_json(r) for r in db.list(q=q, kind=kind)
-        if (r["mime_type"] or "").startswith("video/mp4")
+        if _is_streamable(r["mime_type"]) or _unknown_mime(r["mime_type"])
     ]
 
 
