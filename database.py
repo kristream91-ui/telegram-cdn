@@ -51,6 +51,11 @@ class Database:
                 genre       TEXT DEFAULT ''
             )"""
         )
+        # poster images for series (data-URL text; same lifespan as the DB)
+        try:
+            self._conn.execute("ALTER TABLE series_meta ADD COLUMN poster TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         self._conn.commit()
 
     # ------------------------------------------------------------------ #
@@ -153,10 +158,31 @@ class Database:
             )
             self._conn.commit()
 
+    def set_series_poster(self, name: str, poster: str = ""):
+        """Poster image (data-URL) for a series (upsert; empty string clears)."""
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO series_meta (name, poster)
+                   VALUES (?, ?)
+                   ON CONFLICT(name) DO UPDATE SET poster = excluded.poster""",
+                (name, poster),
+            )
+            self._conn.commit()
+
+    def series_poster(self, name: str) -> str:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT poster FROM series_meta WHERE name = ?", (name,)
+            ).fetchone()
+        return (row["poster"] or "") if row else ""
+
     def series_meta_all(self):
+        """Content details for all series (poster NOT included — it's big)."""
         with self._lock:
             return self._conn.execute(
-                "SELECT * FROM series_meta ORDER BY name"
+                "SELECT name, description, year, genre, "
+                "CASE WHEN poster IS NOT NULL AND poster != '' THEN 1 ELSE 0 END AS has_poster "
+                "FROM series_meta ORDER BY name"
             ).fetchall()
 
     def update_codecs(self, uuid: str, codecs: str = ""):
