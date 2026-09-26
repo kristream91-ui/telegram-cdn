@@ -62,6 +62,9 @@ def _assemble_assets():
 
 _assemble_assets()
 
+bot: Client = None
+streamer: TelegramStreamer = None
+
 MEDIA_FILTER = (
     filters.video | filters.document | filters.audio | filters.photo | filters.voice
 )
