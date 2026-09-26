@@ -32,6 +32,11 @@ class Database:
                 ON files(chat_id, message_id) WHERE message_id IS NOT NULL;
             """
         )
+        # migration for older DBs
+        try:
+            self._conn.execute("ALTER TABLE files ADD COLUMN codecs TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         self._conn.commit()
 
     # ------------------------------------------------------------------ #
@@ -105,6 +110,15 @@ class Database:
             self._conn.execute(
                 "UPDATE files SET file_name = ? WHERE uuid = ?",
                 (file_name, uuid),
+            )
+            self._conn.commit()
+
+    def update_codecs(self, uuid: str, codecs: str = ""):
+        if not codecs:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE files SET codecs = ? WHERE uuid = ?", (codecs, uuid)
             )
             self._conn.commit()
 

@@ -170,13 +170,22 @@ async function renderWatch(uuid) {
       <a class="btn primary" href="/download/${uuid}">⬇ Download</a></div>`;
   }
 
+  const badCodec = /hevc|ac-3|eac-3/i.test(f.codecs || "");
+  const banner = badCodec
+    ? `<div style="margin-top:14px; padding:12px 16px; border-radius:10px;
+         background:rgba(244,63,94,.12); border:1px solid rgba(244,63,94,.35); font-size:13.5px;">
+         ⚠️ Codec: ${esc(f.codecs)} — aksar browsers isse play nahi kar paate.
+         Play na ho to download karke MX Player / VLC mein dekho.</div>` : "";
+
   app.innerHTML = `
     <a href="#/" class="btn ghost" style="margin-top:18px; display:inline-block;">← Back</a>
+    ${banner}
     ${player}
     <div class="watch-head">
       <div>
         <h1>${esc(f.name)}</h1>
         <div class="meta">${fmtSize(f.size)} · ${f.mime || "unknown"}
+          ${f.codecs ? " · " + esc(f.codecs) : ""}
           ${f.duration ? " · " + fmtDur(f.duration) : ""}
           · ${new Date(f.created_at * 1000).toLocaleDateString()}</div>
         ${f.caption ? `<div class="caption">${esc(f.caption)}</div>` : ""}
@@ -201,6 +210,17 @@ async function renderWatch(uuid) {
       if (Date.now() - last > 5000) { last = Date.now(); savePos(uuid, p); }
     });
     p.addEventListener("pause", () => savePos(uuid, p));
+    p.addEventListener("error", () => {
+      const wrap = p.closest(".player-wrap");
+      if (!wrap) return;
+      wrap.innerHTML =
+        '<div style="padding:44px 20px; text-align:center;">' +
+        '<div style="font-size:44px; margin-bottom:10px;">⚠️</div>' +
+        '<div style="font-weight:700; font-size:16px; margin-bottom:6px;">Browser ye file play nahi kar saka</div>' +
+        '<div style="color:#8a95a8; font-size:13px;">File ka codec browser-supported nahi hai' +
+        (f.codecs ? " (" + esc(f.codecs) + ")" : "") +
+        '. Download karke MX Player / VLC mein dekho.</div></div>';
+    });
   }
 
   $("#copyBtn").addEventListener("click", async () => {

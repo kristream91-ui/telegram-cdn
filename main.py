@@ -482,5 +482,5 @@ async def thumb_file(uuid: str, request: Request):
                                   "mime_type": "image/jpeg"}, request)
 
 
-if __name__ == "____main__":
+if __name__ == "__main__":
     uvicorn.run("main:app", host=Config.HOST, port=Config.PORT, log_level="info")
