@@ -4,6 +4,7 @@ Run:  python main.py          (needs env vars, see .env.example)
 """
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import logging
@@ -13,7 +14,7 @@ import time
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pyrogram import Client, filters
@@ -422,7 +423,7 @@ async def backfill_channel(client: Client):
 
 
 # --------------------------------------------------------------------- #
-#  Admin authentication (panel password)                                 #
+#  Admin authentication (panel password)                                #
 # --------------------------------------------------------------------- #
 
 def _admin_token(ttl: int = 24 * 3600) -> tuple:
@@ -458,7 +459,7 @@ def _require_admin(request: Request):
 
 
 # --------------------------------------------------------------------- #
-#  Web app                                                               #
+#  Web app                                                              #
 # --------------------------------------------------------------------- #
 
 @asynccontextmanager
@@ -684,9 +685,57 @@ async def list_series():
             "description": (m["description"] if m else "") or "",
             "year": (m["year"] if m else "") or "",
             "genre": (m["genre"] if m else "") or "",
+            "has_poster": bool(m["has_poster"]) if m else False,
         })
     result.sort(key=lambda x: -x["latest"])
     return result
+
+
+POSTER_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+@app.post("/api/series/{name}/poster")
+async def upload_poster(name: str, request: Request, poster: UploadFile = File(...)):
+    """Admin: set the poster image for a series."""
+    _require_admin(request)
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(400, "Series name is required")
+    data = await poster.read()
+    if not data:
+        raise HTTPException(400, "Poster file is empty")
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(400, "Poster is too big (max 2 MB)")
+    mime = (poster.content_type or "").split(";")[0].strip().lower()
+    if mime not in POSTER_TYPES:
+        raise HTTPException(400, "Poster must be a JPG, PNG, WEBP or GIF image")
+    db.set_series_poster(
+        name, "data:" + mime + ";base64," + base64.b64encode(data).decode()
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/series/{name}/poster")
+async def clear_poster(name: str, request: Request):
+    """Admin: remove a series poster (falls back to episode thumbnails)."""
+    _require_admin(request)
+    db.set_series_poster((name or "").strip(), "")
+    return {"ok": True}
+
+
+@app.get("/poster/{name}")
+async def get_poster(name: str):
+    """Public: poster image bytes for a series."""
+    val = db.series_poster((name or "").strip())
+    if not val.startswith("data:"):
+        raise HTTPException(404, "No poster")
+    head, _, b64 = val.partition(",")
+    mime = head[5:].split(";")[0] or "image/jpeg"
+    return Response(
+        content=base64.b64decode(b64),
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=60"},
+    )
 
 
 @app.patch("/api/series/{name}")
