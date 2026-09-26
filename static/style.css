@@ -480,3 +480,29 @@ input { font-family: inherit; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .watch-head .actions { width: 100%; }
 }
+
+/* ---------------- admin panel ---------------- */
+
+.admin-page { max-width: 980px; margin: 0 auto; padding: 96px 4vw 70px; }
+.admin-title { font-family: "Bebas Neue", sans-serif; font-size: 36px; letter-spacing: 1px; margin: 8px 0 4px; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 8px; }
+.stat { background: var(--panel, #0b1424); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.stat b { display: block; font-size: 24px; color: var(--blue2, #00d4ff); font-family: "Bebas Neue", sans-serif; letter-spacing: .5px; }
+.stat span { font-size: 11px; color: #8aa0bf; text-transform: uppercase; letter-spacing: .8px; }
+
+.admin-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.admin-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: #8aa0bf; padding: 8px; border-bottom: 1px solid var(--line); }
+.admin-table td { padding: 12px 8px; border-bottom: 1px solid #14203a; font-size: 14px; color: #dbe6f5; vertical-align: middle; }
+.admin-table td.name { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.admin-table td.ops { text-align: right; white-space: nowrap; }
+.admin-table tr:hover td { background: rgba(0, 174, 239, .04); }
+
+.btn.small { padding: 6px 10px; font-size: 12px; border-radius: 6px; }
+.btn.danger { background: #e0243f; border-color: #e0243f; color: #fff; }
+.btn.danger:hover { box-shadow: 0 4px 18px rgba(224, 36, 63, .4); }
+
+@media (max-width: 720px) {
+  .admin-table td:nth-child(3), .admin-table th:nth-child(3) { display: none; }
+  .admin-table td.name { max-width: 150px; }
+}

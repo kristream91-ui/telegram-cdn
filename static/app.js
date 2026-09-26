@@ -359,13 +359,169 @@ function addStatus(msg, isError) {
 }
 
 /* -------------------------------------------------------------- */
+/*  admin panel                                                    */
+/* -------------------------------------------------------------- */
+
+const ADMIN_KEY = "adminTok";
+
+function adminTok() {
+  try {
+    const t = JSON.parse(localStorage.getItem(ADMIN_KEY));
+    if (t && t.exp && t.exp > Date.now() / 1000 + 60) return t.tok;
+  } catch { /* corrupt entry */ }
+  localStorage.removeItem(ADMIN_KEY);
+  return null;
+}
+
+function adminApi(path, opts) {
+  const headers = Object.assign({}, (opts && opts.headers) || {},
+    { "Authorization": "Bearer " + adminTok() });
+  return api(path, Object.assign({}, opts, { headers: headers }));
+}
+
+async function renderAdmin() {
+  document.title = "Admin — Ani77";
+  const tok = adminTok();
+
+  if (!tok) {
+    app.innerHTML = `
+    <div class="admin-page">
+      <div class="modal-box" style="max-width:400px;margin:8vh auto 0">
+        <h2>🛡️ Admin Login</h2>
+        <p class="hint">Only the admin can manage the library.</p>
+        <label>Password</label>
+        <input id="adminPw" type="password" placeholder="••••••••" autocomplete="current-password">
+        <div id="adminStatus" class="add-status hidden"></div>
+        <div class="modal-actions">
+          <a class="btn ghost" href="#/">← Back</a>
+          <button id="adminLogin" class="btn primary">Login</button>
+        </div>
+      </div>
+    </div>`;
+    const doLogin = async () => {
+      const btn = $("#adminLogin");
+      btn.disabled = true;
+      btn.textContent = "Checking…";
+      try {
+        const j = await api("/api/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: $("#adminPw").value }),
+        });
+        localStorage.setItem(ADMIN_KEY, JSON.stringify({ tok: j.token, exp: j.expires_at }));
+        toast("Admin login ✓");
+        renderAdmin();
+      } catch (e) {
+        const s = $("#adminStatus");
+        s.textContent = e.message;
+        s.className = "add-status error";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Login";
+      }
+    };
+    $("#adminLogin").addEventListener("click", doLogin);
+    $("#adminPw").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+    $("#adminPw").focus();
+    return;
+  }
+
+  app.innerHTML = `
+  <div class="admin-page">
+    <a href="#/" class="btn ghost" style="margin-bottom:16px;display:inline-flex;">← Back to site</a>
+    <h1 class="admin-title">🛡️ Admin Panel</h1>
+    <div id="adminStats" class="stat-grid"></div>
+    <div class="watch-head" style="margin-top:10px;">
+      <h2 style="margin:0;">Files <span class="count" id="aCount"></span></h2>
+      <button id="adminLogout" class="btn ghost">Logout</button>
+    </div>
+    <div id="adminList"></div>
+  </div>`;
+
+  $("#adminLogout").addEventListener("click", () => {
+    localStorage.removeItem(ADMIN_KEY);
+    toast("Logged out");
+    location.hash = "#/";
+    route();
+  });
+
+  try {
+    const s = await adminApi("/api/admin/stats");
+    $("#adminStats").innerHTML = `
+      <div class="stat"><b>${s.files}</b><span>Files</span></div>
+      <div class="stat"><b>${s.ts_files}</b><span>TS files</span></div>
+      <div class="stat"><b>${fmtSize(s.total_size)}</b><span>Library size</span></div>
+      <div class="stat"><b>${s.bot_online ? "Online" : "Offline"}</b><span>Bot</span></div>`;
+  } catch (e) {
+    localStorage.removeItem(ADMIN_KEY);
+    renderAdmin();
+    return;
+  }
+
+  let files = [];
+  try { files = (await api("/api/files")) || []; } catch { /* keep empty */ }
+  $("#aCount").textContent = files.length;
+  if (!files.length) {
+    $("#adminList").innerHTML = `<div class="empty" style="padding:30px"><div class="icon">🎬</div><h3>No files yet</h3>
+      <p>Add files with the ＋ Add button or by sending them to the bot.</p></div>`;
+    return;
+  }
+  $("#adminList").innerHTML = `<table class="admin-table">
+    <thead><tr><th>Name</th><th>Size</th><th>Format</th><th>Added</th><th></th></tr></thead>
+    <tbody>${files.map(f => `
+      <tr>
+        <td class="name">${esc(f.name || f.uuid)}</td>
+        <td>${fmtSize(f.size)}</td>
+        <td>${esc(f.mime || "—")}</td>
+        <td>${new Date(f.created_at * 1000).toLocaleDateString()}</td>
+        <td class="ops">
+          <button class="btn small" data-act="rename" data-uuid="${f.uuid}" data-name="${esc(f.name || "")}">✏️ Rename</button>
+          <button class="btn small danger" data-act="del" data-uuid="${f.uuid}">🗑️ Delete</button>
+        </td>
+      </tr>`).join("")}</tbody></table>`;
+
+  document.querySelectorAll(".admin-table [data-act]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const uuid = btn.dataset.uuid;
+      if (btn.dataset.act === "rename") {
+        const name = prompt("New name (with extension, e.g. Movie.mp4):", btn.dataset.name || "");
+        if (!name || !name.trim() || name.trim() === btn.dataset.name) return;
+        btn.disabled = true;
+        try {
+          await adminApi("/api/files/" + uuid, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file_name: name.trim() }),
+          });
+          toast("Renamed ✓");
+          renderAdmin();
+        } catch (e) { toast(e.message); btn.disabled = false; }
+      } else {
+        if (!confirm("Delete this file from the library?")) return;
+        btn.disabled = true;
+        try {
+          await adminApi("/api/files/" + uuid, { method: "DELETE" });
+          toast("Deleted ✓");
+          renderAdmin();
+        } catch (e) { toast(e.message); btn.disabled = false; }
+      }
+    });
+  });
+}
+
+/* -------------------------------------------------------------- */
 /*  routing + boot                                                 */
 /* -------------------------------------------------------------- */
 
 function route() {
   const h = location.hash || "#/";
   if (h.startsWith("#/watch/")) renderWatch(decodeURIComponent(h.split("/")[2] || ""));
-  else { renderHome(); window.scrollTo(0, 0); }
+  else if (h.startsWith("#/admin")) renderAdmin();
+  else {
+    document.title = "Ani77 — Stream Hindi Dub Anime";
+    renderHome();
+    window.scrollTo(0, 0);
+  }
 }
 
 async function loadFiles() {

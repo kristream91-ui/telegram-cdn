@@ -28,6 +28,9 @@ class Config:
     HOST = os.environ.get("HOST", "0.0.0.0")
     PORT = int(os.environ.get("PORT", "8000"))
 
+    # Admin panel password (set as an env var on Render). Empty = panel disabled.
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
     # Optional comma-separated admin user ids allowed to delete files
     # via the web UI (leave empty to let anyone delete — it's your call).
     ADMINS = {int(x) for x in os.environ.get("ADMINS", "").replace(",", " ").split() if x.strip()}

@@ -4,6 +4,8 @@ Run:  python main.py          (needs env vars, see .env.example)
 """
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import os
 import time
@@ -285,7 +287,7 @@ async def stream_response(row, request: Request, as_attachment=False):
 
     if as_attachment:
         fname = (row["file_name"] or row["uuid"]).replace('"', "")
-        disp = f'attachment; filename="{fname}"; filename*=UTF-8\'\'{fname}'
+        disp = f'attachment; filename="{fname}"; filename*=UTF-8\\'{fname}'
     else:
         disp = "inline"
 
@@ -396,6 +398,42 @@ async def backfill_channel(client: Client):
         log.info("Backfill complete: %s new files indexed", count)
     except Exception as e:
         log.warning("Backfill skipped/failed: %s", e)
+
+
+# --------------------------------------------------------------------- #
+#  Admin authentication (panel password)                                 #
+# --------------------------------------------------------------------- #
+
+def _admin_token(ttl: int = 24 * 3600) -> tuple:
+    """Stateless HMAC token: '<expiry>.<signature>' keyed by ADMIN_PASSWORD."""
+    exp = int(time.time()) + ttl
+    sig = hmac.new(
+        Config.ADMIN_PASSWORD.encode(), f"ani77-admin:{exp}".encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{exp}.{sig}", exp
+
+
+def _admin_ok(request: Request) -> bool:
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return False
+    tok = auth[7:].strip()
+    exp, _, sig = tok.partition(".")
+    if not exp.isdigit() or not sig:
+        return False
+    if int(exp) < int(time.time()):
+        return False
+    expect = hmac.new(
+        Config.ADMIN_PASSWORD.encode(), f"ani77-admin:{exp}".encode(), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(sig, expect)
+
+
+def _require_admin(request: Request):
+    if not Config.ADMIN_PASSWORD:
+        raise HTTPException(503, "Admin password is not configured on the server")
+    if not _admin_ok(request):
+        raise HTTPException(401, "Admin access required")
 
 
 # --------------------------------------------------------------------- #
@@ -559,8 +597,48 @@ async def add_file(body: dict):
     }
 
 
+@app.post("/api/admin/login")
+async def admin_login(body: dict):
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    if not Config.ADMIN_PASSWORD:
+        raise HTTPException(503, "Admin password is not configured on the server")
+    pw = str(body.get("password") or "")
+    if not hmac.compare_digest(pw, Config.ADMIN_PASSWORD):
+        await asyncio.sleep(1)          # slow down brute-force attempts
+        raise HTTPException(401, "Wrong password")
+    token, exp = _admin_token()
+    return {"token": token, "expires_at": exp}
+
+
+@app.get("/api/admin/stats")
+async def admin_stats(request: Request):
+    _require_admin(request)
+    rows = db.list()
+    return {
+        "files": len(rows),
+        "ts_files": sum(1 for r in rows if (r["mime_type"] or "") == "video/mp2t"),
+        "total_size": sum(r["file_size"] or 0 for r in rows),
+        "bot_online": bot is not None,
+        "uptime_sec": round(time.time() - START_TIME, 1),
+    }
+
+
+@app.patch("/api/files/{uuid}")
+async def rename_file(uuid: str, request: Request, body: dict):
+    _require_admin(request)
+    if not db.get(uuid):
+        raise HTTPException(404, "File not found")
+    name = str(body.get("file_name") or "").strip()[:200]
+    if not name:
+        raise HTTPException(400, "file_name is required")
+    db.update_name(uuid, name)
+    return {"ok": True, "name": name}
+
+
 @app.delete("/api/files/{uuid}")
-async def delete_file(uuid: str):
+async def delete_file(uuid: str, request: Request):
+    _require_admin(request)
     if not db.delete(uuid):
         raise HTTPException(404, "File not found")
     return {"ok": True}
