@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 
@@ -118,6 +119,7 @@ async def index_message(message) -> str | None:
     rec = extract_media(message)
     if rec is None:
         return None
+    rec["series"], rec["season"], rec["episode"] = _parse_series(rec["file_name"])
     if rec["chat_id"] and rec["message_id"]:
         existing = db.find_by_message(rec["chat_id"], rec["message_id"])
         if existing:
@@ -174,6 +176,22 @@ EXT_MIME = {
 
 def _unknown_mime(mime) -> bool:
     return (not mime) or mime == "application/octet-stream"
+
+
+_SE_RE = re.compile(r"[\s._\[-]+S(\d{1,2})\s?[\s._-]*E(\d{1,3})", re.IGNORECASE)
+_X_RE = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?!\d)")
+
+
+def _parse_series(file_name: str):
+    """Auto-group from the filename: 'Tensura S4E1 Hindi Dub.mp4' ->
+    ('Tensura', 4, 1). Falls back to (None, 0, 0) for standalone movies."""
+    base = (file_name or "").rsplit(".", 1)[0]
+    m = _SE_RE.search(base) or _X_RE.search(base)
+    if not m:
+        return None, 0, 0
+    season, episode = int(m.group(1)), int(m.group(2))
+    series = base[: m.start()].strip(" -._[]()'").strip()
+    return (series or None), season, episode
 
 
 def _codecs_of(row) -> str:
@@ -323,6 +341,9 @@ def row_to_json(row) -> dict:
         "has_thumb": bool(row["thumb_file_id"]),
         "caption": row["caption"],
         "created_at": row["created_at"],
+        "series": row["series"],
+        "season": row["season"] or 0,
+        "episode": row["episode"] or 0,
     }
 
 
@@ -443,6 +464,15 @@ def _require_admin(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot, streamer
+    # one-time: auto-group existing files from their filenames (SxxExx)
+    try:
+        for r in db.list():
+            if not r["series"] and r["file_name"]:
+                s, se, ep = _parse_series(r["file_name"])
+                if s:
+                    db.update_group(r["uuid"], s, se, ep)
+    except Exception as e:
+        log.warning("Series backfill skipped: %s", e)
     problems = Config.validate()
     if problems:
         for p in problems:
@@ -580,12 +610,14 @@ async def add_file(body: dict):
             "watch": Config.BASE_URL + "/#/watch/" + existing["uuid"],
             "detected": {"mime": row["mime_type"], "size": row["file_size"]} if row else None,
         }
+    _s, _se, _ep = _parse_series(file_name)
     uuid = db.add(
         file_id=file_id,
         file_name=file_name,
         file_size=file_size,
         mime_type=mime_type,
         caption="",
+        series=_s, season=_se, episode=_ep,
     )
     # Auto-detect mime + size straight from Telegram (a few seconds, one-time)
     row = await ensure_metadata(db.get(uuid))
@@ -617,6 +649,7 @@ async def admin_stats(request: Request):
     rows = db.list()
     return {
         "files": len(rows),
+        "series": len({r["series"] for r in rows if r["series"]}),
         "ts_files": sum(1 for r in rows if (r["mime_type"] or "") == "video/mp2t"),
         "total_size": sum(r["file_size"] or 0 for r in rows),
         "bot_online": bot is not None,
@@ -624,16 +657,75 @@ async def admin_stats(request: Request):
     }
 
 
+@app.get("/api/series")
+async def list_series():
+    """All series with episode counts + content details."""
+    meta = {m["name"]: m for m in db.series_meta_all()}
+    out = {}
+    for r in db.list():
+        if not r["series"]:
+            continue
+        s = out.setdefault(r["series"], {
+            "name": r["series"], "episodes": 0, "seasons": set(),
+            "latest": r["created_at"] or 0,
+        })
+        s["episodes"] += 1
+        if r["season"]:
+            s["seasons"].add(r["season"])
+        s["latest"] = max(s["latest"], r["created_at"] or 0)
+    result = []
+    for s in out.values():
+        m = meta.get(s["name"])
+        result.append({
+            "name": s["name"],
+            "episodes": s["episodes"],
+            "seasons": sorted(s["seasons"]),
+            "latest": s["latest"],
+            "description": (m["description"] if m else "") or "",
+            "year": (m["year"] if m else "") or "",
+            "genre": (m["genre"] if m else "") or "",
+        })
+    result.sort(key=lambda x: -x["latest"])
+    return result
+
+
+@app.patch("/api/series/{name}")
+async def update_series(name: str, request: Request, body: dict):
+    """Admin: fill content details (description / year / genre) for a series."""
+    _require_admin(request)
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(400, "Series name is required")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    db.set_series_meta(
+        name,
+        str(body.get("description") or "").strip()[:1000],
+        str(body.get("year") or "").strip()[:10],
+        str(body.get("genre") or "").strip()[:100],
+    )
+    return {"ok": True}
+
+
 @app.patch("/api/files/{uuid}")
 async def rename_file(uuid: str, request: Request, body: dict):
     _require_admin(request)
     if not db.get(uuid):
         raise HTTPException(404, "File not found")
-    name = str(body.get("file_name") or "").strip()[:200]
-    if not name:
-        raise HTTPException(400, "file_name is required")
-    db.update_name(uuid, name)
-    return {"ok": True, "name": name}
+    if "file_name" in body:
+        name = str(body.get("file_name") or "").strip()[:200]
+        if not name:
+            raise HTTPException(400, "file_name is required")
+        db.update_name(uuid, name)
+    if ("series" in body) or ("season" in body) or ("episode" in body):
+        series = str(body.get("series") or "").strip()[:200] or None
+        try:
+            season = int(body.get("season") or 0)
+            episode = int(body.get("episode") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "season / episode must be numbers")
+        db.update_group(uuid, series, season, episode)
+    return {"ok": True}
 
 
 @app.delete("/api/files/{uuid}")

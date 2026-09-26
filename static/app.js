@@ -67,6 +67,34 @@ function codecTag(f) {
   return ` <span class="${cls}">${esc(f.codecs)}</span>`;
 }
 
+/* group files into series: [{name, eps: [files sorted], latest}] */
+function buildSeries(files) {
+  const map = {};
+  files.forEach(f => {
+    if (!f.series) return;
+    (map[f.series] = map[f.series] || []).push(f);
+  });
+  return Object.entries(map).map(([name, eps]) => ({
+    name,
+    eps: eps.sort((a, b) => (a.season - b.season) || (a.episode - b.episode)),
+    latest: Math.max(...eps.map(e => e.created_at || 0)),
+  })).sort((a, b) => b.latest - a.latest);
+}
+
+function seriesCardHTML(s) {
+  const seasons = [...new Set(s.eps.map(e => e.season).filter(Boolean))];
+  const badge = seasons.length > 1 ? `${seasons.length} Seasons` : `S${seasons[0] || 1}`;
+  return `
+    <a class="card series-card" href="#/series/${encodeURIComponent(s.name)}" title="${esc(s.name)}">
+      <div class="thumb"><div class="ph">📺</div>
+        <div class="play-overlay"><span>▶</span></div>
+        <span class="badge hd">${badge} · ${s.eps.length} EP</span>
+      </div>
+      <div class="t">${esc(s.name)}</div>
+      <div class="m">${s.eps.length} episode${s.eps.length > 1 ? "s" : ""}</div>
+    </a>`;
+}
+
 /* fetch wrapper with timeout + friendly errors */
 async function api(path, opts) {
   let r;
@@ -97,7 +125,8 @@ function cardHTML(f, showProgress) {
   const img = f.has_thumb
     ? `<img src="/thumb/${f.uuid}" loading="lazy" alt=""
          onerror="this.remove()">` : "";
-  const ph = img ? "" : `<div class="ph">🎬</div>`;
+  const ph = img ? "" : `<div class="ph">${f.series ? "📺" : "🎬"}</div>`;
+  const ep = f.series && f.episode ? ` · <b>S${f.season || 1}E${f.episode}</b>` : "";
   return `
     <a class="card" href="#/watch/${f.uuid}" title="${esc(f.name)}">
       <div class="thumb">${img}${ph}
@@ -105,7 +134,7 @@ function cardHTML(f, showProgress) {
         ${badge}${progress}
       </div>
       <div class="t">${esc(displayName(f))}</div>
-      <div class="m">${fmtSize(f.size)}${codecTag(f)}</div>
+      <div class="m">${fmtSize(f.size)}${codecTag(f)}${ep}</div>
     </a>`;
 }
 
@@ -199,14 +228,22 @@ function renderHome() {
   const watching = FILES.filter(f => started(f.uuid));
   const recent = files.slice(0, 12);
   const hero = files.find(f => f.has_thumb) || files[0];
+  const series = buildSeries(files);
+  const standalone = files.filter(f => !f.series);
 
   app.innerHTML = heroHTML(hero)
     + rowHTML("Continue Watching", watching, "cw")
     + rowHTML(q ? `Results for "${esc(q)}"` : "Recently Added", recent, "recent")
-    + `<section class="row-section">
-         <h2>All Titles <span class="count">${files.length}</span></h2>
-         <div class="grid">${files.map(f => cardHTML(f, true)).join("")}</div>
-       </section>`;
+    + (series.length ? `
+      <section class="row-section">
+        <h2>Series <span class="count">${series.length}</span></h2>
+        <div class="grid">${series.map(seriesCardHTML).join("")}</div>
+      </section>` : "")
+    + (standalone.length ? `
+      <section class="row-section">
+        <h2>Movies & More <span class="count">${standalone.length}</span></h2>
+        <div class="grid">${standalone.map(f => cardHTML(f, true)).join("")}</div>
+      </section>` : "");
 
   document.querySelectorAll(".row-arrow").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -222,6 +259,50 @@ function errorBoxHTML(icon, title, msg, retry) {
     <h2>${esc(title)}</h2>
     <p>${esc(msg)}</p>
     ${retry ? '<button class="btn primary" id="retryBtn">↻ Retry</button>' : ""}
+  </div>`;
+}
+
+async function renderSeries(name) {
+  if (!name) { location.hash = "#/"; return; }
+  document.title = name + " — Ani77";
+  const eps = FILES.filter(f => (f.series || "") === name)
+    .sort((a, b) => (a.season - b.season) || (a.episode - b.episode));
+  if (!eps.length) { location.hash = "#/"; return; }
+
+  let meta = { description: "", year: "", genre: "" };
+  try {
+    const all = await api("/api/series");
+    meta = all.find(s => s.name === name) || meta;
+  } catch { /* details are nice-to-have */ }
+
+  const seasons = [...new Set(eps.map(e => e.season || 1))].sort((a, b) => a - b);
+  const cont = eps.find(e => started(e.uuid));
+  const first = cont || eps[0];
+  const desc = meta.description || "Hindi dub anime — stream straight from Telegram in original quality.";
+
+  app.innerHTML = `
+  <div class="watch-page">
+    <a href="#/" class="btn ghost" style="margin-bottom:16px; display:inline-flex;">← Back</a>
+    <h1 style="font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,5vw,48px);letter-spacing:1px;">
+      ${esc(name)}
+      ${meta.year ? `<span class="badge-new">${esc(meta.year)}</span>` : ""}</h1>
+    <div class="meta" style="color:var(--muted);font-size:13px;margin:6px 0 10px;">
+      ${meta.genre ? esc(meta.genre) + " · " : ""}${seasons.length} season${seasons.length > 1 ? "s" : ""} · ${eps.length} episode${eps.length > 1 ? "s" : ""}</div>
+    <p style="color:#c3cfe2;max-width:640px;line-height:1.6;">${esc(desc)}</p>
+    <div class="cta" style="display:flex;gap:12px;margin:18px 0 8px;">
+      <a class="btn primary" href="#/watch/${first.uuid}">▶ ${cont ? "Continue E" + (cont.episode || "?") : "Play E1"}</a>
+    </div>
+    ${seasons.map(sn => `
+    <section class="row-section" style="padding-left:0;">
+      <h2 style="padding-left:0;">Season ${sn} <span class="count">${eps.filter(e => (e.season || 1) === sn).length} eps</span></h2>
+      <div class="ep-list">${eps.filter(e => (e.season || 1) === sn).map(e => `
+        <a class="ep-row" href="#/watch/${e.uuid}">
+          <span class="ep-num">E${e.episode || "?"}</span>
+          <span class="ep-name">${esc(displayName(e))}</span>
+          <span class="ep-dur">${fmtDur(e.duration)}${codecTag(e)}</span>
+          <span class="ep-play">▶</span>
+        </a>`).join("")}</div>
+    </section>`).join("")}
   </div>`;
 }
 
@@ -268,10 +349,16 @@ async function renderWatch(uuid) {
     </div>
 
     ${FILES.filter(x => x.uuid !== uuid).length ? `
+    ${f.series && FILES.filter(x => x.series === f.series && x.uuid !== uuid).length ? `
+    <section class="row-section" style="padding-top:26px">
+      <h2>More Episodes <span class="count">${FILES.filter(x => x.series === f.series && x.uuid !== uuid).length}</span></h2>
+      <div class="grid">${FILES.filter(x => x.series === f.series && x.uuid !== uuid).slice(0, 12).map(x => cardHTML(x, true)).join("")}</div>
+    </section>` : ""}
+    ${FILES.filter(x => x.uuid !== uuid && x.series !== f.series).length ? `
     <section class="row-section" style="padding-top:26px">
       <h2>More Like This</h2>
-      <div class="grid">${FILES.filter(x => x.uuid !== uuid).slice(0, 12).map(x => cardHTML(x, true)).join("")}</div>
-    </section>` : ""}
+      <div class="grid">${FILES.filter(x => x.uuid !== uuid && x.series !== f.series).slice(0, 12).map(x => cardHTML(x, true)).join("")}</div>
+    </section>` : ""}` : ""}
   </div>`;
 
   const p = $("#player");
@@ -432,6 +519,10 @@ async function renderAdmin() {
     <h1 class="admin-title">🛡️ Admin Panel</h1>
     <div id="adminStats" class="stat-grid"></div>
     <div class="watch-head" style="margin-top:10px;">
+      <h2 style="margin:0;">📺 Content Details <span class="count" id="sCount"></span></h2>
+    </div>
+    <div id="adminSeries"></div>
+    <div class="watch-head" style="margin-top:26px;">
       <h2 style="margin:0;">Files <span class="count" id="aCount"></span></h2>
       <button id="adminLogout" class="btn ghost">Logout</button>
     </div>
@@ -449,6 +540,7 @@ async function renderAdmin() {
     const s = await adminApi("/api/admin/stats");
     $("#adminStats").innerHTML = `
       <div class="stat"><b>${s.files}</b><span>Files</span></div>
+      <div class="stat"><b>${s.series}</b><span>Series</span></div>
       <div class="stat"><b>${s.ts_files}</b><span>TS files</span></div>
       <div class="stat"><b>${fmtSize(s.total_size)}</b><span>Library size</span></div>
       <div class="stat"><b>${s.bot_online ? "Online" : "Offline"}</b><span>Bot</span></div>`;
@@ -457,6 +549,55 @@ async function renderAdmin() {
     renderAdmin();
     return;
   }
+
+  let seriesList = [];
+  try { seriesList = (await api("/api/series")) || []; } catch { /* ok */ }
+  $("#sCount").textContent = seriesList.length;
+  $("#adminSeries").innerHTML = seriesList.length ? `<table class="admin-table">
+    <thead><tr><th>Series</th><th>Year</th><th>Genre</th><th>Description</th><th></th></tr></thead>
+    <tbody>${seriesList.map(s => `
+      <tr>
+        <td class="name"><b>${esc(s.name)}</b><div style="font-size:11px;color:var(--muted);">${s.episodes} eps · ${s.seasons.length || 1} season${(s.seasons.length || 1) > 1 ? "s" : ""}</div></td>
+        <td>${esc(s.year || "—")}</td>
+        <td>${esc(s.genre || "—")}</td>
+        <td style="font-weight:400;">${esc(s.description ? s.description.slice(0, 60) + (s.description.length > 60 ? "…" : "") : "—")}</td>
+        <td class="ops"><button class="btn small" data-meta="${esc(s.name)}">✏️ Edit</button></td>
+      </tr>`).join("")}</tbody></table>`
+    : `<div class="empty" style="padding:16px"><p>No series yet — files with SxxExx in the name (e.g. Tensura S4E1.mp4) are grouped automatically.</p></div>`;
+
+  document.querySelectorAll("[data-meta]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const name = btn.dataset.meta;
+      const s = seriesList.find(x => x.name === name) || { name, description: "", year: "", genre: "" };
+      const tr = btn.closest("tr");
+      tr.innerHTML = `<td colspan="5">
+        <div class="meta-edit">
+          <div class="mrow"><label>Release year</label><input id="mYear" value="${esc(s.year || "")}" placeholder="2025"></div>
+          <div class="mrow"><label>Genre</label><input id="mGenre" value="${esc(s.genre || "")}" placeholder="Action, Fantasy, Isekai"></div>
+          <div class="mrow"><label>Description</label><textarea id="mDesc" rows="3" placeholder="Anime story / description...">${esc(s.description || "")}</textarea></div>
+          <div class="modal-actions">
+            <button class="btn ghost" id="mCancel">Cancel</button>
+            <button class="btn primary" id="mSave">Save details</button>
+          </div>
+        </div></td>`;
+      $("#mCancel").addEventListener("click", () => renderAdmin());
+      $("#mSave").addEventListener("click", async () => {
+        try {
+          await adminApi("/api/series/" + encodeURIComponent(name), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              year: $("#mYear").value.trim(),
+              genre: $("#mGenre").value.trim(),
+              description: $("#mDesc").value.trim(),
+            }),
+          });
+          toast("Details saved ✓");
+          renderAdmin();
+        } catch (e) { toast(e.message); }
+      });
+    });
+  });
 
   let files = [];
   try { files = (await api("/api/files")) || []; } catch { /* keep empty */ }
@@ -467,14 +608,15 @@ async function renderAdmin() {
     return;
   }
   $("#adminList").innerHTML = `<table class="admin-table">
-    <thead><tr><th>Name</th><th>Size</th><th>Format</th><th>Added</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Group</th><th>Size</th><th>Format</th><th></th></tr></thead>
     <tbody>${files.map(f => `
       <tr>
         <td class="name">${esc(f.name || f.uuid)}</td>
+        <td>${f.series ? `S${f.season || 1} · E${f.episode || "?"}` : "—"}</td>
         <td>${fmtSize(f.size)}</td>
         <td>${esc(f.mime || "—")}</td>
-        <td>${new Date(f.created_at * 1000).toLocaleDateString()}</td>
         <td class="ops">
+          <button class="btn small" data-act="group" data-uuid="${f.uuid}" data-series="${esc(f.series || "")}" data-season="${f.season || 1}" data-episode="${f.episode || 1}">🏷️ Group</button>
           <button class="btn small" data-act="rename" data-uuid="${f.uuid}" data-name="${esc(f.name || "")}">✏️ Rename</button>
           <button class="btn small danger" data-act="del" data-uuid="${f.uuid}">🗑️ Delete</button>
         </td>
@@ -494,6 +636,27 @@ async function renderAdmin() {
             body: JSON.stringify({ file_name: name.trim() }),
           });
           toast("Renamed ✓");
+          renderAdmin();
+        } catch (e) { toast(e.message); btn.disabled = false; }
+      } else if (btn.dataset.act === "group") {
+        const series = prompt("Series name (empty = standalone movie):", btn.dataset.series || "");
+        if (series === null) return;
+        const season = prompt("Season number:", btn.dataset.season || "1");
+        if (season === null) return;
+        const episode = prompt("Episode number:", btn.dataset.episode || "1");
+        if (episode === null) return;
+        btn.disabled = true;
+        try {
+          await adminApi("/api/files/" + uuid, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              series: series.trim(),
+              season: Number(season) || 0,
+              episode: Number(episode) || 0,
+            }),
+          });
+          toast("Grouping saved ✓");
           renderAdmin();
         } catch (e) { toast(e.message); btn.disabled = false; }
       } else {
@@ -516,6 +679,7 @@ async function renderAdmin() {
 function route() {
   const h = location.hash || "#/";
   if (h.startsWith("#/watch/")) renderWatch(decodeURIComponent(h.split("/")[2] || ""));
+  else if (h.startsWith("#/series/")) renderSeries(decodeURIComponent(h.split("/")[2] || ""));
   else if (h.startsWith("#/admin")) renderAdmin();
   else {
     document.title = "Ani77 — Stream Hindi Dub Anime";

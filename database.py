@@ -37,6 +37,20 @@ class Database:
             self._conn.execute("ALTER TABLE files ADD COLUMN codecs TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # series grouping (Season/Episode organization) + content details
+        for col in ("series TEXT", "season INTEGER", "episode INTEGER"):
+            try:
+                self._conn.execute(f"ALTER TABLE files ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS series_meta (
+                name        TEXT PRIMARY KEY,
+                description TEXT DEFAULT '',
+                year        TEXT DEFAULT '',
+                genre       TEXT DEFAULT ''
+            )"""
+        )
         self._conn.commit()
 
     # ------------------------------------------------------------------ #
@@ -50,8 +64,8 @@ class Database:
                 INSERT OR IGNORE INTO files (
                     uuid, file_id, file_name, file_size, mime_type, duration,
                     width, height, thumb_file_id, chat_id, message_id,
-                    caption, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    caption, created_at, series, season, episode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     uuid,
@@ -67,6 +81,9 @@ class Database:
                     row.get("message_id"),
                     row.get("caption") or "",
                     row.get("created_at") or time.time(),
+                    row.get("series"),
+                    int(row.get("season") or 0),
+                    int(row.get("episode") or 0),
                 ),
             )
             self._conn.commit()
@@ -113,6 +130,35 @@ class Database:
             )
             self._conn.commit()
 
+    def update_group(self, uuid: str, series, season: int = 0, episode: int = 0):
+        """Set/clear a file's series grouping (series=None -> standalone)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE files SET series = ?, season = ?, episode = ? WHERE uuid = ?",
+                (series, int(season or 0), int(episode or 0), uuid),
+            )
+            self._conn.commit()
+
+    def set_series_meta(self, name: str, description: str = "", year: str = "", genre: str = ""):
+        """Content details for a series (upsert)."""
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO series_meta (name, description, year, genre)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                     description = excluded.description,
+                     year = excluded.year,
+                     genre = excluded.genre""",
+                (name, description, year, genre),
+            )
+            self._conn.commit()
+
+    def series_meta_all(self):
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM series_meta ORDER BY name"
+            ).fetchall()
+
     def update_codecs(self, uuid: str, codecs: str = ""):
         if not codecs:
             return
@@ -137,8 +183,8 @@ class Database:
         sql, params = "SELECT * FROM files", []
         where = []
         if q:
-            where.append("(file_name LIKE ? OR caption LIKE ?)")
-            params += [f"%{q}%", f"%{q}%"]
+            where.append("(file_name LIKE ? OR caption LIKE ? OR series LIKE ?)")
+            params += [f"%{q}%", f"%{q}%", f"%{q}%"]
         if kind in ("video", "audio", "image", "doc"):
             if kind == "doc":
                 where.append(
