@@ -60,6 +60,15 @@ def sniff_mime(head: bytes, fallback=None) -> str:
         return "application/pdf"
     if head[:2] == b"PK":
         return "application/zip"
+    if head[:3] == b"FLV":
+        return "video/x-flv"
+    if head[:4] == b"\x30\x26\xb2\x75":                  # ASF / WMV
+        return "video/x-ms-wmv"
+    if len(head) > 376 and head[0] == 0x47 and head[188] == 0x47 and head[376] == 0x47:
+        return "video/mp2t"                              # MPEG-TS
+    # MP4-family boxes can sit past leading junk — scan the whole head.
+    if b"ftyp" in head or b"moov" in head or b"mdat" in head:
+        return "video/mp4"
     if fallback is not None:
         return {
             FileType.VIDEO: "video/mp4",
