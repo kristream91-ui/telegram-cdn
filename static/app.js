@@ -127,7 +127,7 @@ function brandHeroHTML() {
   <section class="hero brand-hero">
     <div class="fade"></div>
     <div class="info">
-      <img class="brand-logo-lg" src="/static/logo.png" alt="Ani77">
+      <img class="brand-logo-lg" src="/static/logo.webp" alt="Ani77">
       <h1>Stream Hindi Dub Anime<span class="badge-new">FREE</span></h1>
       <p class="desc">Your personal OTT library, powered by Telegram. Send an MP4 to
         the bot or add it with a file_id — and watch it right here, anywhere.</p>
@@ -332,7 +332,7 @@ function addStatus(msg, isError) {
 
 /* -------------------------------------------------------------- */
 /*  routing + boot                                                 */
-/*-------------- ------------------------------------------------ */
+/* -------------------------------------------------------------- */
 
 function route() {
   const h = location.hash || "#/";
