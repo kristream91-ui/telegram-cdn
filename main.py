@@ -423,7 +423,7 @@ async def backfill_channel(client: Client):
 
 
 # --------------------------------------------------------------------- #
-#  Admin authentication (panel password)                                #
+#  Admin authentication (panel password)                                 #
 # --------------------------------------------------------------------- #
 
 def _admin_token(ttl: int = 24 * 3600) -> tuple:
@@ -459,7 +459,7 @@ def _require_admin(request: Request):
 
 
 # --------------------------------------------------------------------- #
-#  Web app                                                              #
+#  Web app                                                               #
 # --------------------------------------------------------------------- #
 
 @asynccontextmanager

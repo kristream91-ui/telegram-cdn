@@ -545,3 +545,21 @@ input { font-family: inherit; }
 @media (max-width: 720px) {
   .admin-table td:nth-child(4), .admin-table th:nth-child(4) { display: none; }
 }
+
+/* ---------------- series hero (poster backdrop) ---------------- */
+
+.series-hero {
+  position: relative;
+  border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--bg2) center 20% / cover no-repeat;
+  box-shadow: var(--shadow);
+  margin-bottom: 8px;
+}
+.series-hero .s-fade {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(5, 10, 20, .96) 8%, rgba(5, 10, 20, .55) 45%, rgba(5, 10, 20, .15) 80%);
+}
+.series-hero .s-info { position: relative; z-index: 1; padding: 80px 22px 22px; max-width: 720px; }
+
+.meta-edit input[type="file"] { color: var(--muted); }

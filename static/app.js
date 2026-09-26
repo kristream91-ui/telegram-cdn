@@ -6,6 +6,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const app = $("#app");
 
 let FILES = [];
+let SERIES = [];   // series content details (/api/series)
 let LOAD_FAILED = false;
 
 /* -------------------------------------------------------------- */
@@ -67,26 +68,35 @@ function codecTag(f) {
   return ` <span class="${cls}">${esc(f.codecs)}</span>`;
 }
 
-/* group files into series: [{name, eps: [files sorted], latest}] */
+/* group files into series: [{name, eps: [files sorted], latest, poster, thumbUuid}] */
 function buildSeries(files) {
   const map = {};
   files.forEach(f => {
     if (!f.series) return;
     (map[f.series] = map[f.series] || []).push(f);
   });
-  return Object.entries(map).map(([name, eps]) => ({
-    name,
-    eps: eps.sort((a, b) => (a.season - b.season) || (a.episode - b.episode)),
-    latest: Math.max(...eps.map(e => e.created_at || 0)),
-  })).sort((a, b) => b.latest - a.latest);
+  return Object.entries(map).map(([name, eps]) => {
+    const meta = SERIES.find(s => s.name === name) || {};
+    return {
+      name,
+      eps: eps.sort((a, b) => (a.season - b.season) || (a.episode - b.episode)),
+      latest: Math.max(...eps.map(e => e.created_at || 0)),
+      poster: meta.has_poster ? "/poster/" + encodeURIComponent(name) : null,
+      thumbUuid: (eps.find(e => e.has_thumb) || {}).uuid || null,
+    };
+  }).sort((a, b) => b.latest - a.latest);
 }
 
 function seriesCardHTML(s) {
   const seasons = [...new Set(s.eps.map(e => e.season).filter(Boolean))];
   const badge = seasons.length > 1 ? `${seasons.length} Seasons` : `S${seasons[0] || 1}`;
+  const img = s.poster || (s.thumbUuid ? `/thumb/${s.thumbUuid}` : "");
+  const inner = img
+    ? `<img src="${img}" loading="lazy" alt="" onerror="this.remove()">`
+    : `<div class="ph">📺</div>`;
   return `
     <a class="card series-card" href="#/series/${encodeURIComponent(s.name)}" title="${esc(s.name)}">
-      <div class="thumb"><div class="ph">📺</div>
+      <div class="thumb">${inner}
         <div class="play-overlay"><span>▶</span></div>
         <span class="badge hd">${badge} · ${s.eps.length} EP</span>
       </div>
@@ -279,19 +289,27 @@ async function renderSeries(name) {
   const cont = eps.find(e => started(e.uuid));
   const first = cont || eps[0];
   const desc = meta.description || "Hindi dub anime — stream straight from Telegram in original quality.";
+  const back = meta.has_poster
+    ? `/poster/${encodeURIComponent(name)}`
+    : ((eps.find(e => e.has_thumb) || {}).uuid ? `/thumb/${eps.find(e => e.has_thumb).uuid}` : "");
 
   app.innerHTML = `
   <div class="watch-page">
     <a href="#/" class="btn ghost" style="margin-bottom:16px; display:inline-flex;">← Back</a>
-    <h1 style="font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,5vw,48px);letter-spacing:1px;">
-      ${esc(name)}
-      ${meta.year ? `<span class="badge-new">${esc(meta.year)}</span>` : ""}</h1>
-    <div class="meta" style="color:var(--muted);font-size:13px;margin:6px 0 10px;">
-      ${meta.genre ? esc(meta.genre) + " · " : ""}${seasons.length} season${seasons.length > 1 ? "s" : ""} · ${eps.length} episode${eps.length > 1 ? "s" : ""}</div>
-    <p style="color:#c3cfe2;max-width:640px;line-height:1.6;">${esc(desc)}</p>
-    <div class="cta" style="display:flex;gap:12px;margin:18px 0 8px;">
-      <a class="btn primary" href="#/watch/${first.uuid}">▶ ${cont ? "Continue E" + (cont.episode || "?") : "Play E1"}</a>
-    </div>
+    <section class="series-hero"${back ? ` style="background-image:url('${back}')"` : ""}>
+      <div class="s-fade"></div>
+      <div class="s-info">
+        <h1 style="font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,5vw,48px);letter-spacing:1px;">
+          ${esc(name)}
+          ${meta.year ? `<span class="badge-new">${esc(meta.year)}</span>` : ""}</h1>
+        <div class="meta" style="color:var(--muted);font-size:13px;margin:6px 0 10px;">
+          ${meta.genre ? esc(meta.genre) + " · " : ""}${seasons.length} season${seasons.length > 1 ? "s" : ""} · ${eps.length} episode${eps.length > 1 ? "s" : ""}</div>
+        <p style="color:#c3cfe2;max-width:640px;line-height:1.6;">${esc(desc)}</p>
+        <div class="cta" style="display:flex;gap:12px;margin:18px 0 8px;">
+          <a class="btn primary" href="#/watch/${first.uuid}">▶ ${cont ? "Continue E" + (cont.episode || "?") : "Play E1"}</a>
+        </div>
+      </div>
+    </section>
     ${seasons.map(sn => `
     <section class="row-section" style="padding-left:0;">
       <h2 style="padding-left:0;">Season ${sn} <span class="count">${eps.filter(e => (e.season || 1) === sn).length} eps</span></h2>
@@ -552,12 +570,13 @@ async function renderAdmin() {
 
   let seriesList = [];
   try { seriesList = (await api("/api/series")) || []; } catch { /* ok */ }
+  SERIES = seriesList;
   $("#sCount").textContent = seriesList.length;
   $("#adminSeries").innerHTML = seriesList.length ? `<table class="admin-table">
     <thead><tr><th>Series</th><th>Year</th><th>Genre</th><th>Description</th><th></th></tr></thead>
     <tbody>${seriesList.map(s => `
       <tr>
-        <td class="name"><b>${esc(s.name)}</b><div style="font-size:11px;color:var(--muted);">${s.episodes} eps · ${s.seasons.length || 1} season${(s.seasons.length || 1) > 1 ? "s" : ""}</div></td>
+        <td class="name">${s.has_poster ? `<img src="/poster/${encodeURIComponent(s.name)}" loading="lazy" style="height:34px;border-radius:6px;margin-right:10px;vertical-align:middle;object-fit:cover;" onerror="this.remove()">` : ""}<b>${esc(s.name)}</b><div style="font-size:11px;color:var(--muted);">${s.episodes} eps · ${s.seasons.length || 1} season${(s.seasons.length || 1) > 1 ? "s" : ""}</div></td>
         <td>${esc(s.year || "—")}</td>
         <td>${esc(s.genre || "—")}</td>
         <td style="font-weight:400;">${esc(s.description ? s.description.slice(0, 60) + (s.description.length > 60 ? "…" : "") : "—")}</td>
@@ -575,14 +594,39 @@ async function renderAdmin() {
           <div class="mrow"><label>Release year</label><input id="mYear" value="${esc(s.year || "")}" placeholder="2025"></div>
           <div class="mrow"><label>Genre</label><input id="mGenre" value="${esc(s.genre || "")}" placeholder="Action, Fantasy, Isekai"></div>
           <div class="mrow"><label>Description</label><textarea id="mDesc" rows="3" placeholder="Anime story / description...">${esc(s.description || "")}</textarea></div>
+          <div class="mrow"><label>Poster image (JPG / PNG / WEBP, 2 MB max)</label>
+            <input id="mPoster" type="file" accept="image/*" style="padding:6px;">
+            ${s.has_poster ? `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+              <img src="/poster/${encodeURIComponent(name)}" style="height:64px;border-radius:8px;" onerror="this.remove()">
+              <button class="btn small danger" id="mPosterDel">🗑️ Remove poster</button></div>`
+            : `<div style="font-size:11.5px;color:var(--muted);margin-top:6px;">No poster yet — episode thumbnail (if any) is used instead.</div>`}
+          </div>
           <div class="modal-actions">
             <button class="btn ghost" id="mCancel">Cancel</button>
             <button class="btn primary" id="mSave">Save details</button>
           </div>
         </div></td>`;
       $("#mCancel").addEventListener("click", () => renderAdmin());
-      $("#mSave").addEventListener("click", async () => {
+      const pdel = $("#mPosterDel");
+      if (pdel) pdel.addEventListener("click", async () => {
         try {
+          await adminApi("/api/series/" + encodeURIComponent(name) + "/poster", { method: "DELETE" });
+          toast("Poster removed ✓");
+          renderAdmin();
+        } catch (e) { toast(e.message); }
+      });
+      $("#mSave").addEventListener("click", async () => {
+        const btn2 = $("#mSave");
+        const posterFile = $("#mPoster").files[0];
+        try {
+          if (posterFile) {
+            btn2.disabled = true; btn2.textContent = "Uploading…";
+            const fd = new FormData();
+            fd.append("poster", posterFile);
+            await adminApi("/api/series/" + encodeURIComponent(name) + "/poster",
+              { method: "POST", body: fd });
+            btn2.textContent = "Saving…";
+          }
           await adminApi("/api/series/" + encodeURIComponent(name), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -593,8 +637,9 @@ async function renderAdmin() {
             }),
           });
           toast("Details saved ✓");
+          await loadFiles();
           renderAdmin();
-        } catch (e) { toast(e.message); }
+        } catch (e) { toast(e.message); btn2.disabled = false; btn2.textContent = "Save details"; }
       });
     });
   });
@@ -696,6 +741,8 @@ async function loadFiles() {
     LOAD_FAILED = true;
     FILES = [];
   }
+  try { SERIES = (await api("/api/series")) || []; }
+  catch { SERIES = []; }
 }
 
 async function refresh() {
