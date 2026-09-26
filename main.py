@@ -135,25 +135,46 @@ def _unknown_mime(mime) -> bool:
     return (not mime) or mime == "application/octet-stream"
 
 
+def _codecs_of(row) -> str:
+    try:
+        return row["codecs"] or ""
+    except (KeyError, IndexError):
+        return ""
+
+
 async def ensure_metadata(row, force=False):
     """If mime/size are unknown (manual file_id adds), probe Telegram for them.
     Without this the watch page can't show a video player or allow seeking.
-    Falls back to the file's extension when the content sniffer can't tell."""
+    Falls back to the file's extension when the content sniffer can't tell.
+    Also fills in codec info (H.264/HEVC) so the UI can warn when a file
+    won't actually play in a browser."""
     if row is None or streamer is None:
         return row
-    if not force and row["file_size"] and not _unknown_mime(row["mime_type"]):
+    if (not force and row["file_size"]
+            and not _unknown_mime(row["mime_type"]) and _codecs_of(row)):
         return row
 
-    # 1) ask Telegram: magic-byte sniff + exact size
+    # 1) ask Telegram: magic-byte sniff + exact size + codecs
     if not row["file_size"] or _unknown_mime(row["mime_type"]) or force:
         try:
-            size, mime = await asyncio.wait_for(
+            size, mime, codecs = await asyncio.wait_for(
                 streamer.probe_file(row["file_id"]), timeout=30
             )
             db.update_meta(row["uuid"], mime, size)
+            db.update_codecs(row["uuid"], codecs)
             row = db.get(row["uuid"])
         except Exception as e:
             log.warning("Probe failed for %s: %s", row["uuid"], e)
+    elif not _codecs_of(row):
+        # size/mime already known (bot-indexed) — quick 2-request codec sniff
+        try:
+            codecs = await asyncio.wait_for(
+                streamer.probe_codecs(row["file_id"], row["file_size"]), timeout=15
+            )
+            db.update_codecs(row["uuid"], codecs)
+            row = db.get(row["uuid"])
+        except Exception as e:
+            log.warning("Codec sniff failed for %s: %s", row["uuid"], e)
 
     # 2) fall back to the file extension, if the sniffer couldn't tell
     if _unknown_mime(row["mime_type"]) and row["file_name"]:
@@ -252,6 +273,7 @@ def row_to_json(row) -> dict:
         "name": row["file_name"] or row["uuid"],
         "size": row["file_size"],
         "mime": row["mime_type"],
+        "codecs": _codecs_of(row),
         "duration": row["duration"],
         "has_thumb": bool(row["thumb_file_id"]),
         "caption": row["caption"],
@@ -284,8 +306,21 @@ def register_bot(client: Client):
             return
         uuid = await index_message(m)
         if uuid:
+            codecs = ""
+            try:
+                row = db.get(uuid)
+                if row and row["file_size"]:
+                    codecs = await asyncio.wait_for(
+                        streamer.probe_codecs(row["file_id"], row["file_size"]),
+                        timeout=10,
+                    )
+                    db.update_codecs(uuid, codecs)
+            except Exception:
+                pass
+            codec_line = f"🎬 Codec: {codecs}\n" if codecs else ""
             await m.reply(
                 f"✅ Indexed!\n\n"
+                f"{codec_line}"
                 f"▶️ Watch: {Config.BASE_URL}/#/watch/{uuid}\n"
                 f"⬇️ Download: {Config.BASE_URL}/download/{uuid}\n"
                 f"🔗 Direct stream: {Config.BASE_URL}/stream/{uuid}"
@@ -371,7 +406,7 @@ async def get_file(uuid: str):
     row = db.get(uuid)
     if not row:
         raise HTTPException(404, "File not found")
-    row = await ensure_metadata(row)   # one-time: fills in mime/size if missing
+    row = await ensure_metadata(row)   # one-time: fills in mime/size/codecs
     return row_to_json(row)
 
 
@@ -447,5 +482,5 @@ async def thumb_file(uuid: str, request: Request):
                                   "mime_type": "image/jpeg"}, request)
 
 
-if __name__ == "__main__":
+if __name__ == "____main__":
     uvicorn.run("main:app", host=Config.HOST, port=Config.PORT, log_level="info")
