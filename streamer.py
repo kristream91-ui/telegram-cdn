@@ -5,9 +5,10 @@ using only its bot-API file_id — nothing is written to disk. Supports HTTP
 byte ranges (so video seeking works) and encrypted Telegram CDN redirects
 (the same mechanism Pyrogram's own downloader uses).
 
-Also probes files (binary-search for EOF + magic-byte sniffing) so manually
-added file_ids get a proper mime type and size — without them the web UI
-can't show a video player.
+Also probes files (binary-search for EOF + magic-byte sniffing + codec scan)
+so manually added file_ids get a proper mime type, size, and codec info —
+without them the web UI can't show a video player or warn about files
+that no browser can play.
 """
 
 import asyncio
@@ -77,6 +78,24 @@ def sniff_mime(head: bytes, fallback=None) -> str:
             FileType.PHOTO: "image/jpeg",
         }.get(fallback, "application/octet-stream")
     return "application/octet-stream"
+
+
+VIDEO_CODECS = {"avc1": "H.264", "avc3": "H.264", "hvc1": "HEVC", "hev1": "HEVC",
+                "av01": "AV1", "mp4v": "MPEG-4", "vp09": "VP9"}
+AUDIO_CODECS = {"mp4a": "AAC", "ac-3": "AC-3", "ec-3": "EAC-3", "Opus": "Opus",
+                ".mp3": "MP3", "samr": "AMR"}
+
+
+def scan_codecs(data: bytes) -> str:
+    """Scan MP4 moov-box bytes for codec fourccs, e.g. 'H.264 video + AAC audio'."""
+    video = [name for tag, name in VIDEO_CODECS.items() if tag.encode() in data]
+    audio = [name for tag, name in AUDIO_CODECS.items() if tag.encode() in data]
+    parts = []
+    if video:
+        parts.append(video[0] + " video")
+    if audio:
+        parts.append(audio[0] + " audio")
+    return " + ".join(parts)
 
 
 class TelegramStreamer:
@@ -253,11 +272,9 @@ class TelegramStreamer:
     # ------------------------------------------------------------------ #
 
     async def probe_file(self, file_id: str) -> tuple:
-        """Find (file_size, mime_type) for a file_id using tiny GetFile calls.
-
-        First it sniffs the file header for the mime type, then binary-searches
-        for the exact end of the file (each probe fetches one 4 KiB block).
-        """
+        """Find (file_size, mime_type, codecs) for a file_id using tiny GetFile
+        calls. Sniffs the header for the mime type, binary-searches for the
+        exact end of the file, and scans the moov box for codec fourccs."""
         fid = FileId.decode(file_id)
         location = self._location(fid)
         session = await self._get_media_session(fid.dc_id)
@@ -280,7 +297,7 @@ class TelegramStreamer:
         mime = sniff_mime(head, fallback=fid.file_type)
 
         if len(head) < ALIGNMENT:
-            return len(head), mime
+            return len(head), mime, scan_codecs(head)
 
         # Binary search for the largest 4096-aligned offset that still has
         # data; invariant: peek(lo) non-empty, peek(hi) empty.
@@ -299,7 +316,42 @@ class TelegramStreamer:
             else:
                 hi = mid
         size = lo + len(await peek(lo, ALIGNMENT))  # tail is always <= 4096
-        return size, mime
+
+        # codec sniff: the moov box sits either at the start or the end
+        codecs = await self._codec_sniff(session, peek, head, size)
+        return size, mime, codecs
+
+    async def _codec_sniff(self, session, peek, head: bytes, size: int) -> str:
+        """Fetch the moov box region (start or end of file) and scan it."""
+        data = head if b"moov" in head else b""
+        if not data and size:
+            tail_off = max(0, ((size - 1) // CHUNK_SIZE) * CHUNK_SIZE)
+            tail_len = min(
+                CHUNK_SIZE,
+                ((size - tail_off + ALIGNMENT - 1) // ALIGNMENT) * ALIGNMENT,
+            )
+            if tail_len > 0:
+                data = await peek(tail_off, tail_len)
+        return scan_codecs(data) if data else ""
+
+    async def probe_codecs(self, file_id: str, size: int) -> str:
+        """Fast codec-only sniff (2 requests) for files whose size is known."""
+        fid = FileId.decode(file_id)
+        location = self._location(fid)
+        session = await self._get_media_session(fid.dc_id)
+
+        async def peek(offset: int, limit: int) -> bytes:
+            r = await session.invoke(
+                functions.upload.GetFile(
+                    location=location, offset=offset, limit=limit
+                )
+            )
+            if isinstance(r, types.upload.FileCdnRedirect):
+                raise RuntimeError("CDN-redirected file cannot be probed")
+            return r.bytes
+
+        head = await peek(0, ALIGNMENT)
+        return await self._codec_sniff(session, peek, head, size)
 
     # ------------------------------------------------------------------ #
 
