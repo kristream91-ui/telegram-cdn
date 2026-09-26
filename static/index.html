@@ -1,45 +1,64 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StreamVault — Telegram CDN</title>
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ani77 — Stream Hindi Dub Anime</title>
+  <meta name="description" content="Stream Hindi dub anime straight from Telegram.">
+  <link rel="icon" type="image/png" href="/static/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="#/">Stream<span>Vault</span></a>
-  <div class="searchbox">
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
-    </svg>
-    <input id="search" type="search" placeholder="Search movies, music, files…" autocomplete="off">
-  </div>
-  <button id="addBtn" class="btn ghost" title="Add by Telegram file ID">＋ Add</button>
-</header>
+  <nav id="nav">
+    <a class="brand" href="#/" title="Ani77 — Home">
+      <img src="/static/logo.png" alt="Ani77">
+    </a>
+    <div class="nav-search">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>
+      </svg>
+      <input id="search" type="search" placeholder="Search anime, movies..." autocomplete="off">
+    </div>
+    <div class="nav-actions">
+      <button id="addBtn" class="btn ghost" title="Add a file by Telegram file_id">
+        <span class="plus">+</span> Add
+      </button>
+    </div>
+  </nav>
 
-<main id="app"></main>
+  <main id="app"></main>
 
-<div id="modal" class="modal hidden">
-  <div class="modal-card">
-    <h3>Add a file by Telegram File ID</h3>
-    <p class="hint">Send any MP4 to the bot on Telegram — it replies with links, or paste
-      its <code>file_id</code> here. The file_id must come from <em>this</em> bot.
-      Sirf MP4 videos support hoti hain — naam mein extension daalo, e.g. Movie.mp4.</p>
-    <input id="fidInput"  placeholder="file_id (BAACAgUAAx…)">
-    <input id="nameInput" placeholder="Name with extension, e.g. Movie.mp4">
-    <input id="sizeInput" type="number" min="0" placeholder="File size in bytes (optional — auto-detected)">
-    <input id="mimeInput" placeholder="MIME type, e.g. video/mp4 (optional)">
-    <div class="row">
-      <button id="cancelAdd" class="btn ghost">Cancel</button>
-      <button id="confirmAdd" class="btn primary">Add file</button>
+  <footer id="footer">
+    <img src="/static/logo.png" alt="">
+    <p>Stream Hindi Dub Anime Free · Powered by Telegram</p>
+  </footer>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <h2>Add to Ani77</h2>
+      <p class="hint">Paste a Telegram <b>file_id</b> — the app auto-detects size, format and codecs. MP4 only.</p>
+      <label>file_id <span class="req">*</span></label>
+      <input id="fidInput" placeholder="BQACAgUAAxkB..." spellcheck="false">
+      <label>Name (with extension, e.g. Movie.mp4)</label>
+      <input id="nameInput" placeholder="Tensura S4E1 Hindi Dub.mp4">
+      <label>Size in bytes (optional)</label>
+      <input id="sizeInput" type="number" min="0" placeholder="224000000">
+      <label>Mime type (optional)</label>
+      <input id="mimeInput" placeholder="video/mp4">
+      <div id="addStatus" class="add-status hidden"></div>
+      <div class="modal-actions">
+        <button id="cancelAdd" class="btn ghost">Cancel</button>
+        <button id="confirmAdd" class="btn primary">Detect & Add</button>
+      </div>
     </div>
   </div>
-</div>
 
-<div id="toast" class="toast hidden"></div>
-
-<script src="/static/app.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

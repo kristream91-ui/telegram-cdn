@@ -1,14 +1,20 @@
-/* StreamVault frontend — vanilla JS, hash routing, zero dependencies */
+/* ==================================================================
+   Ani77 — Netflix-style frontend (vanilla JS, hash routing, no deps)
+   ================================================================== */
 
 const $ = (s, el = document) => el.querySelector(s);
 const app = $("#app");
 
 let FILES = [];
-let activeKind = "all";
+let LOAD_FAILED = false;
 
-/* ------------------------------------------------------------------ */
-/*  helpers                                                            */
-/* ------------------------------------------------------------------ */
+/* -------------------------------------------------------------- */
+/*  helpers                                                        */
+/* -------------------------------------------------------------- */
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
+}
 
 function fmtSize(n) {
   if (!n) return "—";
@@ -26,16 +32,9 @@ function fmtDur(s) {
            : `${m}:${String(x).padStart(2, "0")}`;
 }
 
-function kindOf(f) {
-  const m = f.mime || "";
-  if (m.startsWith("video")) return "video";
-  if (m.startsWith("audio")) return "audio";
-  if (m.startsWith("image")) return "image";
-  return "doc";
-}
-
-function iconOf(f) {
-  return { video: "🎬", audio: "🎵", image: "🖼️", doc: "📦" }[kindOf(f)];
+/* display title without the file extension (keeps the Netflix feel) */
+function displayName(f) {
+  return String(f.name || f.uuid).replace(/\.(mp4|m4v|mkv|avi|mov|webm|ts|flv|wmv|mpg|mpeg)$/i, "");
 }
 
 function toast(msg) {
@@ -43,7 +42,7 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.remove("hidden");
   clearTimeout(t._h);
-  t._h = setTimeout(() => t.classList.add("hidden"), 2600);
+  t._h = setTimeout(() => t.classList.add("hidden"), 3000);
 }
 
 /* continue-watching bookmarks: cw:<uuid> -> {pos, dur} */
@@ -56,154 +55,231 @@ function savePos(uuid, player) {
 function getPos(uuid) {
   try { return JSON.parse(localStorage.getItem(`cw:${uuid}`)); } catch { return null; }
 }
-
-/* ------------------------------------------------------------------ */
-/*  rendering                                                          */
-/* ------------------------------------------------------------------ */
-
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
+function started(uuid) {
+  const p = getPos(uuid);
+  return !!(p && p.pos > 10 && p.pos < p.dur - 30);
 }
 
-function cardHTML(f, showProgress = false) {
-  let progress = "";
-  if (showProgress) {
-    const p = getPos(f.uuid);
-    if (p && p.pos > 10 && p.pos < p.dur - 30) {
-      progress = `<div class="progress"><i style="width:${(p.pos / p.dur * 100).toFixed(1)}%"></i></div>`;
-    }
+function codecTag(f) {
+  if (!f.codecs) return "";
+  const bad = /hevc|ac-3|eac-3/i.test(f.codecs);
+  const cls = bad ? "codec-bad" : "codec-ok";
+  return ` <span class="${cls}">${esc(f.codecs)}</span>`;
+}
+
+/* fetch wrapper with timeout + friendly errors */
+async function api(path, opts) {
+  let r;
+  try {
+    r = await fetch(path, opts);
+  } catch {
+    throw new Error("Network error — is the server awake?");
   }
+  let j = null;
+  try { j = await r.json(); } catch { /* non-JSON (e.g. empty) */ }
+  if (!r.ok) {
+    const d = j && j.detail ? j.detail : `HTTP ${r.status}`;
+    throw new Error(typeof d === "string" ? d : JSON.stringify(d));
+  }
+  return j;
+}
+
+/* -------------------------------------------------------------- */
+/*  cards & rows                                                   */
+/* -------------------------------------------------------------- */
+
+function cardHTML(f, showProgress) {
+  const p = getPos(f.uuid);
+  const progress = showProgress && p && started(f.uuid)
+    ? `<div class="progress"><i style="width:${(p.pos / p.dur * 100).toFixed(1)}%"></i></div>` : "";
   const badge = f.duration
-    ? `<span class="badge${kindOf(f) === "audio" ? " music" : ""}">${fmtDur(f.duration)}</span>` : "";
+    ? `<span class="badge${/hevc/i.test(f.codecs || "") ? "" : " hd"}">${fmtDur(f.duration)}</span>` : "";
   const img = f.has_thumb
-    ? `<img src="/thumb/${f.uuid}" loading="lazy"
-           onerror="this.remove()">` : "";
+    ? `<img src="/thumb/${f.uuid}" loading="lazy" alt=""
+         onerror="this.remove()">` : "";
+  const ph = img ? "" : `<div class="ph">🎬</div>`;
   return `
-    <a class="card" href="#/watch/${f.uuid}">
-      <div class="poster">${iconOf(f)}${img}${badge}</div>
-      ${progress}
-      <div class="title" title="${esc(f.name)}">${esc(f.name)}</div>
-      <div class="sub">${fmtSize(f.size)} · ${kindOf(f)}</div>
+    <a class="card" href="#/watch/${f.uuid}" title="${esc(f.name)}">
+      <div class="thumb">${img}${ph}
+        <div class="play-overlay"><span>▶</span></div>
+        ${badge}${progress}
+      </div>
+      <div class="t">${esc(displayName(f))}</div>
+      <div class="m">${fmtSize(f.size)}${codecTag(f)}</div>
     </a>`;
+}
+
+function rowHTML(title, files, id) {
+  if (!files.length) return "";
+  return `
+  <section class="row-section">
+    <h2>${title} <span class="count">${files.length}</span></h2>
+    <div class="row-wrap">
+      <button class="row-arrow left" data-row="${id}" aria-label="Scroll left">‹</button>
+      <div class="row-scroll" id="row-${id}">${files.map(f => cardHTML(f, true)).join("")}</div>
+      <button class="row-arrow right" data-row="${id}" aria-label="Scroll right">‹</button>
+    </div>
+  </section>`;
+}
+
+function brandHeroHTML() {
+  return `
+  <section class="hero brand-hero">
+    <div class="fade"></div>
+    <div class="info">
+      <img class="brand-logo-lg" src="/static/logo.png" alt="Ani77">
+      <h1>Stream Hindi Dub Anime<span class="badge-new">FREE</span></h1>
+      <p class="desc">Your personal OTT library, powered by Telegram. Send an MP4 to
+        the bot or add it with a file_id — and watch it right here, anywhere.</p>
+      <div class="cta">
+        <a class="btn gold" href="#" id="heroAdd">＋ Add your first file</a>
+      </div>
+    </div>
+  </section>`;
+}
+
+function heroHTML(f) {
+  const desc = f.caption || f.codecs
+    ? esc(f.caption || `Format: ${f.codecs}`)
+    : "Streamed straight from Telegram in original quality.";
+  return `
+  <section class="hero">
+    ${f.has_thumb ? `<img class="backdrop" src="/thumb/${f.uuid}" alt="" onerror="this.remove()">` : ""}
+    <div class="fade"></div>
+    <div class="info">
+      <span class="tagline">Featured</span>
+      <h1>${esc(displayName(f))}</h1>
+      <p class="desc">${desc}</p>
+      <div class="meta">${fmtSize(f.size)}${f.duration ? " · " + fmtDur(f.duration) : ""}${f.codecs ? " · " + esc(f.codecs) : ""}</div>
+      <div class="cta">
+        <a class="btn primary" href="#/watch/${f.uuid}">▶ Watch now</a>
+        <a class="btn ghost" href="/download/${f.uuid}">⬇ Download</a>
+      </div>
+    </div>
+  </section>`;
+}
+
+/* -------------------------------------------------------------- */
+/*  pages                                                          */
+/* -------------------------------------------------------------- */
+
+function skeletonHome() {
+  const cards = Array(6).fill(`<div style="flex:0 0 218px"><div class="skel" style="aspect-ratio:16/9"></div>
+    <div class="skel" style="height:13px;margin-top:10px;width:70%"></div></div>`).join("");
+  app.innerHTML = `
+    <div class="skel" style="height:74vh;border-radius:0"></div>
+    <section class="row-section"><div class="row-scroll">${cards}</div></section>`;
 }
 
 function renderHome() {
   const q = $("#search").value.trim().toLowerCase();
-  const kind = activeKind;
+  const files = q
+    ? FILES.filter(f => f.name.toLowerCase().includes(q) || (f.caption || "").toLowerCase().includes(q))
+    : FILES;
 
-  let files = FILES.filter(f =>
-    (!q || f.name.toLowerCase().includes(q) || (f.caption || "").toLowerCase().includes(q)));
-  if (kind !== "all") files = files.filter(f => kindOf(f) === kind);
-
-  const hero = files.find(f => kindOf(f) === "video") || files[0];
-  const watching = FILES.filter(f => {
-    const p = getPos(f.uuid);
-    return p && p.pos > 10 && p.pos < p.dur - 30;
-  });
-
-  let html = "";
-
-  if (hero) {
-    html += `
-    <section class="hero">
-      ${hero.has_thumb ? `<img class="backdrop" src="/thumb/${hero.uuid}" onerror="this.remove()">` : ""}
-      <div class="fade"></div>
-      <div class="info">
-        <h1>${esc(hero.name)}</h1>
-        <p>${esc(hero.caption || hero.mime || "Streamed straight from Telegram")}</p>
-        <div class="meta">${fmtSize(hero.size)}
-          ${hero.duration ? " · " + fmtDur(hero.duration) : ""} · ${kindOf(hero)}</div>
-        <div style="margin-top:18px; display:flex; gap:10px;">
-          <a class="btn primary" href="#/watch/${hero.uuid}">▶ Watch now</a>
-          <a class="btn ghost" href="/download/${hero.uuid}">⬇ Download</a>
-        </div>
-      </div>
-    </section>`;
-  }
-
-  if (watching.length) {
-    html += `<section class="section"><h2>Continue watching</h2>
-      <div class="row-scroll">${watching.map(f => cardHTML(f, true)).join("")}</div></section>`;
-  }
-
-  html += `<section class="section">
-    <h2>All movies</h2>
-    ${files.length
-      ? `<div class="grid">${files.map(f => cardHTML(f, true)).join("")}</div>`
-      : `<div class="empty"><h3>Nothing here yet</h3>
-         <p>Send an MP4 to the bot on Telegram, or paste a file_id with the ＋ Add button.</p></div>`}
-  </section>`;
-
-  app.innerHTML = html;
-}
-
-async function renderWatch(uuid) {
-  let f;
-  try {
-    const r = await fetch(`/api/files/${uuid}`);
-    if (!r.ok) throw 0;
-    f = await r.json();
-  } catch {
-    app.innerHTML = `<div class="empty"><h3>404</h3><p>This file isn't in the catalog.</p>
-      <p><a class="btn ghost" href="#/" style="margin-top:14px">← Back home</a></p></div>`;
+  if (LOAD_FAILED) {
+    app.innerHTML = errorBoxHTML("⚠️", "Couldn't reach the server",
+      "The app might be waking up from sleep. Give it a few seconds and retry.", true);
     return;
   }
 
-  const k = kindOf(f);
-  let player = "";
+  if (!FILES.length) {
+    app.innerHTML = brandHeroHTML();
+    $("#heroAdd").addEventListener("click", e => { e.preventDefault(); openModal(); });
+    return;
+  }
 
-  if (k === "video") {
-    player = `<div class="player-wrap"><video id="player" controls playsinline preload="metadata"
-      ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
-      src="/stream/${uuid}"></video></div>`;
-  } else if (k === "audio") {
-    player = `<div class="player-wrap" style="padding:30px 20px; background:linear-gradient(135deg,#1b2540,#131a2a)">
-      <div style="text-align:center; font-size:52px; margin-bottom:16px;">🎵</div>
-      <audio id="player" controls style="margin:0 auto; width:100%;">src</audio></div>`;
-  } else if (k === "image") {
-    player = `<div class="player-wrap"><img src="/stream/${uuid}" alt="${esc(f.name)}"></div>`;
-  } else {
-    player = `<div class="fallback">
-      <div class="icon">📦</div>
-      <h3>${esc(f.name)}</h3>
-      <p>${f.mime || "File"} · ${fmtSize(f.size)}</p>
-      <a class="btn primary" href="/download/${uuid}">⬇ Download</a></div>`;
+  if (!files.length) {
+    app.innerHTML = heroHTML(FILES[0]) + `
+      <div class="empty"><div class="icon">🔍</div><h3>No results</h3>
+      <p>Nothing matches "${esc(q)}".</p></div>`;
+    return;
+  }
+
+  const watching = FILES.filter(f => started(f.uuid));
+  const recent = files.slice(0, 12);
+  const hero = files.find(f => f.has_thumb) || files[0];
+
+  app.innerHTML = heroHTML(hero)
+    + rowHTML("Continue Watching", watching, "cw")
+    + rowHTML(q ? `Results for "${esc(q)}"` : "Recently Added", recent, "recent")
+    + `<section class="row-section">
+         <h2>All Titles <span class="count">${files.length}</span></h2>
+         <div class="grid">${files.map(f => cardHTML(f, true)).join("")}</div>
+       </section>`;
+
+  document.querySelectorAll(".row-arrow").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const el = $("#row-" + btn.dataset.row);
+      if (el) el.scrollBy({ left: (btn.classList.contains("right") ? 1 : -1) * el.clientWidth * 0.8, behavior: "smooth" });
+    });
+  });
+}
+
+function errorBoxHTML(icon, title, msg, retry) {
+  return `<div class="error-box">
+    <div class="icon">${icon}</div>
+    <h2>${esc(title)}</h2>
+    <p>${esc(msg)}</p>
+    ${retry ? '<button class="btn primary" id="retryBtn">↻ Retry</button>' : ""}
+  </div>`;
+}
+
+async function renderWatch(uuid) {
+  if (!uuid) { route(); return; }
+
+  let f;
+  try {
+    f = await api(`/api/files/${uuid}`);
+  } catch (e) {
+    app.innerHTML = `<div class="watch-page">` + errorBoxHTML(
+      "🚫", "File not found", e.message + " — it may have been removed.", false)
+      + `<div style="text-align:center"><a class="btn ghost" href="#/">← Back home</a></div></div>`;
+    return;
   }
 
   const badCodec = /hevc|ac-3|eac-3/i.test(f.codecs || "");
   const banner = badCodec
-    ? `<div style="margin-top:14px; padding:12px 16px; border-radius:10px;
-         background:rgba(244,63,94,.12); border:1px solid rgba(244,63,94,.35); font-size:13.5px;">
-         ⚠️ Codec: ${esc(f.codecs)} — aksar browsers isse play nahi kar paate.
-         Play na ho to download karke MX Player / VLC mein dekho.</div>` : "";
+    ? `<div class="codec-banner">⚠️ <b>Codec: ${esc(f.codecs)}</b> — most browsers can't play this.
+       If it doesn't start, download it and watch in MX Player / VLC.</div>` : "";
 
   app.innerHTML = `
-    <a href="#/" class="btn ghost" style="margin-top:18px; display:inline-block;">← Back</a>
+  <div class="watch-page">
+    <a href="#/" class="btn ghost" style="margin-bottom:16px; display:inline-flex;">← Back</a>
     ${banner}
-    ${player}
+    <div class="player-wrap"><video id="player" controls playsinline preload="metadata"
+      ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
+      src="/stream/${uuid}"></video></div>
+
     <div class="watch-head">
       <div>
-        <h1>${esc(f.name)}</h1>
-        <div class="meta">${fmtSize(f.size)} · ${f.mime || "unknown"}
-          ${f.codecs ? " · " + esc(f.codecs) : ""}
-          ${f.duration ? " · " + fmtDur(f.duration) : ""}
-          · ${new Date(f.created_at * 1000).toLocaleDateString()}</div>
+        <h1>${esc(displayName(f))}</h1>
+        <div class="meta">${fmtSize(f.size)}<span class="sep">·</span>${esc(f.mime || "unknown")}
+          ${f.codecs ? `<span class="sep">·</span>${esc(f.codecs)}` : ""}
+          ${f.duration ? `<span class="sep">·</span>${fmtDur(f.duration)}` : ""}
+          <span class="sep">·</span>${new Date(f.created_at * 1000).toLocaleDateString()}</div>
         ${f.caption ? `<div class="caption">${esc(f.caption)}</div>` : ""}
       </div>
       <div class="actions">
-        <a class="btn primary" href="/download/${uuid}">⬇ Download</a>
+        <a class="btn gold" href="/download/${uuid}">⬇ Download</a>
         <button class="btn ghost" id="copyBtn">🔗 Copy link</button>
       </div>
     </div>
-    <section class="section"><h2>More like this</h2>
-      <div class="grid">${FILES.filter(x => x.uuid !== uuid).slice(0, 12).map(x => cardHTML(x)).join("") || '<p class="meta">—</p>'}</div>
-    </section>`;
+
+    ${FILES.filter(x => x.uuid !== uuid).length ? `
+    <section class="row-section" style="padding-top:26px">
+      <h2>More Like This</h2>
+      <div class="grid">${FILES.filter(x => x.uuid !== uuid).slice(0, 12).map(x => cardHTML(x, true)).join("")}</div>
+    </section>` : ""}
+  </div>`;
 
   const p = $("#player");
   if (p) {
     const saved = getPos(uuid);
     if (saved && saved.pos > 10 && saved.pos < (saved.dur || Infinity) - 30) {
-      p.addEventListener("loadedmetadata", () => { p.currentTime = saved.pos; });
+      p.addEventListener("loadedmetadata", () => {
+        try { p.currentTime = saved.pos; } catch { /* not seekable yet */ }
+      });
     }
     let last = 0;
     p.addEventListener("timeupdate", () => {
@@ -214,12 +290,13 @@ async function renderWatch(uuid) {
       const wrap = p.closest(".player-wrap");
       if (!wrap) return;
       wrap.innerHTML =
-        '<div style="padding:44px 20px; text-align:center;">' +
-        '<div style="font-size:44px; margin-bottom:10px;">⚠️</div>' +
-        '<div style="font-weight:700; font-size:16px; margin-bottom:6px;">Browser ye file play nahi kar saka</div>' +
-        '<div style="color:#8a95a8; font-size:13px;">File ka codec browser-supported nahi hai' +
+        '<div class="error-box" style="aspect-ratio:auto;padding:70px 20px">' +
+        '<div class="icon">⚠️</div>' +
+        '<h2>Browser could not play this file</h2>' +
+        '<p>The codec isn\'t browser-supported' +
         (f.codecs ? " (" + esc(f.codecs) + ")" : "") +
-        '. Download karke MX Player / VLC mein dekho.</div></div>';
+        '. Download it and watch in MX Player / VLC.</p>' +
+        '<a class="btn gold" href="/download/' + uuid + '">⬇ Download</a></div>';
     });
   }
 
@@ -227,62 +304,106 @@ async function renderWatch(uuid) {
     const link = location.origin + "/#/watch/" + uuid;
     try {
       await navigator.clipboard.writeText(link);
-      toast("Link copied!");
+      toast("Link copied to clipboard!");
     } catch {
       prompt("Copy this link:", link);
     }
   });
 }
 
-/* ------------------------------------------------------------------ */
-/*  routing + boot                                                     */
-/* ------------------------------------------------------------------ */
+/* -------------------------------------------------------------- */
+/*  modal                                                          */
+/* -------------------------------------------------------------- */
+
+function openModal() {
+  $("#modal").classList.remove("hidden");
+  $("#addStatus").classList.add("hidden");
+  $("#fidInput").focus();
+}
+function closeModal() {
+  $("#modal").classList.add("hidden");
+}
+
+function addStatus(msg, isError) {
+  const s = $("#addStatus");
+  s.textContent = msg;
+  s.className = "add-status" + (isError ? " error" : "");
+}
+
+/* -------------------------------------------------------------- */
+/*  routing + boot                                                 */
+/*-------------- ------------------------------------------------ */
 
 function route() {
   const h = location.hash || "#/";
-  if (h.startsWith("#/watch/")) renderWatch(h.split("/")[2]);
-  else renderHome();
+  if (h.startsWith("#/watch/")) renderWatch(decodeURIComponent(h.split("/")[2] || ""));
+  else { renderHome(); window.scrollTo(0, 0); }
+}
+
+async function loadFiles() {
+  LOAD_FAILED = false;
+  try {
+    FILES = (await api("/api/files")) || [];
+  } catch (e) {
+    LOAD_FAILED = true;
+    FILES = [];
+  }
+}
+
+async function refresh() {
+  skeletonHome();
+  await loadFiles();
+  route();
 }
 
 async function boot() {
-  try {
-    FILES = await (await fetch("/api/files")).json();
-  } catch { FILES = []; }
-
   window.addEventListener("hashchange", route);
+
+  window.addEventListener("scroll", () => {
+    $("#nav").classList.toggle("scrolled", window.scrollY > 24);
+  }, { passive: true });
+
   $("#search").addEventListener("input", () => {
     if (!location.hash || location.hash === "#/") renderHome();
   });
 
-  $("#addBtn").addEventListener("click", () => $("#modal").classList.remove("hidden"));
-  $("#cancelAdd").addEventListener("click", () => $("#modal").classList.add("hidden"));
-  $("#modal").addEventListener("click", e => {
-    if (e.target.id === "modal") $("#modal").classList.add("hidden");
-  });
+  $("#addBtn").addEventListener("click", openModal);
+  $("#cancelAdd").addEventListener("click", closeModal);
+  $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
   $("#confirmAdd").addEventListener("click", async () => {
-    const body = {
-      file_id: $("#fidInput").value.trim(),
-      file_name: $("#nameInput").value.trim(),
-      file_size: Number($("#sizeInput").value) || 0,
-      mime_type: $("#mimeInput").value.trim(),
-    };
-    if (!body.file_id) return toast("file_id is required");
-    const r = await fetch("/api/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const j = await r.json();
-    if (!r.ok) return toast(j.detail || "Failed");
-    FILES = await (await fetch("/api/files")).json();
-    $("#modal").classList.add("hidden");
-    $("#fidInput").value = $("#nameInput").value = $("#sizeInput").value = $("#mimeInput").value = "";
-    toast("Added ✓");
-    location.hash = "#/watch/" + j.uuid;
+    const btn = $("#confirmAdd");
+    const fid = $("#fidInput").value.trim();
+    if (!fid) { addStatus("file_id is required — paste the Telegram file_id first.", true); return; }
+    btn.disabled = true;
+    btn.textContent = "Detecting…";
+    try {
+      const j = await api("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_id: fid,
+          file_name: $("#nameInput").value.trim(),
+          file_size: Number($("#sizeInput").value) || 0,
+          mime_type: $("#mimeInput").value.trim(),
+        }),
+      });
+      closeModal();
+      ["#fidInput", "#nameInput", "#sizeInput", "#mimeInput"].forEach(s => $(s).value = "");
+      toast("Added ✓");
+      await loadFiles();
+      location.hash = "#/watch/" + j.uuid;
+      route();
+    } catch (e) {
+      addStatus(e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Detect & Add";
+    }
   });
 
-  route();
+  await refresh();
 }
 
 boot();

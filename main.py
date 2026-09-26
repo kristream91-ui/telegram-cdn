@@ -1,4 +1,4 @@
-"""StreamVault — a Telegram-backed CDN / OTT-style web app.
+"""Ani77 — a Telegram-backed OTT-style anime streaming app.
 
 Run:  python main.py          (needs env vars, see .env.example)
 """
@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pyrogram import Client, filters
 from pyrogram.errors import FileReferenceExpired
@@ -28,6 +28,7 @@ logging.basicConfig(
 log = logging.getLogger("tgcdn")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+START_TIME = time.time()
 db = Database(os.path.join(BASE_DIR, "files.db"))
 
 bot: Client = None
@@ -384,13 +385,62 @@ async def lifespan(app: FastAPI):
         await bot.stop()
 
 
-app = FastAPI(title="StreamVault", lifespan=lifespan)
+app = FastAPI(title="Ani77", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
+
+# --------------------------------------------------------------------- #
+#  Error handling — every failure returns clean JSON, never an HTML page #
+# --------------------------------------------------------------------- #
+
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request: Request, exc: StarletteHTTPException):
+    if request.url.path.startswith("/api/") or exc.status_code == 406:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    # non-API paths: friendly one-pager instead of FastAPI's default
+    return JSONResponse(
+        {"detail": exc.detail, "path": request.url.path},
+        status_code=exc.status_code,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        {"detail": "Invalid request: " + "; ".join(
+            f"{'.'.join(str(x) for x in e['loc'])} {e['msg']}" for e in exc.errors())},
+        status_code=422,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        {"detail": "Internal server error — check the logs"},
+        status_code=500,
+    )
 
 
 @app.get("/")
 async def home():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+
+
+@app.get("/api/health")
+async def health():
+    """Liveness + status probe (used by keep-alive cron jobs too)."""
+    return {
+        "status": "ok",
+        "app": "Ani77",
+        "bot_online": bot is not None,
+        "files": db.count(),
+        "uptime_sec": round(time.time() - START_TIME, 1),
+    }
 
 
 @app.get("/api/files")
@@ -412,6 +462,9 @@ async def get_file(uuid: str):
 
 @app.post("/api/files")
 async def add_file(body: dict):
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+
     file_id = (body.get("file_id") or "").strip()
     if not file_id:
         raise HTTPException(400, "file_id is required")
@@ -420,11 +473,19 @@ async def add_file(body: dict):
     except Exception:
         raise HTTPException(400, "This is not a valid Telegram file_id")
 
+    file_name = str(body.get("file_name") or "").strip()[:200]
+    try:
+        file_size = int(body.get("file_size") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "file_size must be a number (bytes)")
+    if file_size < 0 or file_size > 4 * 1024**3:
+        raise HTTPException(400, "file_size looks wrong (expected bytes, 0 .. 4GB)")
+    mime_type = str(body.get("mime_type") or "").strip()[:100]
     # Same file added before? Return the existing entry instead of a duplicate.
     existing = db.find_by_file_id(file_id)
     if existing is not None:
-        if body.get("file_name"):
-            db.update_name(existing["uuid"], body["file_name"])
+        if file_name:
+            db.update_name(existing["uuid"], file_name)
             existing = db.get(existing["uuid"])
         row = await ensure_metadata(existing, force=True)
         _mp4_only(row, existing["uuid"])
@@ -435,9 +496,9 @@ async def add_file(body: dict):
         }
     uuid = db.add(
         file_id=file_id,
-        file_name=body.get("file_name") or "",
-        file_size=int(body.get("file_size") or 0),
-        mime_type=body.get("mime_type") or "",
+        file_name=file_name,
+        file_size=file_size,
+        mime_type=mime_type,
         caption="",
     )
     # Auto-detect mime + size straight from Telegram (a few seconds, one-time)
