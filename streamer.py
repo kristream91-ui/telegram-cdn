@@ -196,10 +196,12 @@ class TelegramStreamer:
 
         # Telegram requires each GetFile request to stay inside a single
         # 1 MiB block of the file: offset % 4096 == 0, limit % 4096 == 0,
-        # and offset/(1MB) == (offset+limit-1)/(1MB). So a request from an
-        # unaligned offset gets a shorter first part.
+        # offset/(1MB) == (offset+limit-1)/(1MB), AND 1MB % limit == 0 —
+        # i.e. limit must be a power of two (4KB, 8KB, ... 512KB, 1MB).
+        # See https://core.telegram.org/api/files
         def part_limit(off: int) -> int:
-            return min(CHUNK_SIZE, CHUNK_SIZE - (off % CHUNK_SIZE))
+            avail = CHUNK_SIZE - (off % CHUNK_SIZE)
+            return 1 << (avail.bit_length() - 1)
 
         cdn_redirect = None
         cdn_session = None
@@ -280,8 +282,8 @@ class TelegramStreamer:
         session = await self._get_media_session(fid.dc_id)
 
         async def peek(offset: int, limit: int = ALIGNMENT) -> bytes:
-            # NOTE: limit must be a multiple of 4096, <= 1MB, and the whole
-            # request must stay inside one 1MB block of the file.
+            # NOTE: limit must be a multiple of 4096 that divides 1MB evenly
+            # (i.e. a power of two: 4KB ... 512KB, 1MB).
             r = await session.invoke(
                 functions.upload.GetFile(
                     location=location, offset=offset, limit=limit
@@ -322,17 +324,21 @@ class TelegramStreamer:
         return size, mime, codecs
 
     async def _codec_sniff(self, session, peek, head: bytes, size: int) -> str:
-        """Fetch the moov box region (start or end of file) and scan it."""
-        data = head if b"moov" in head else b""
-        if not data and size:
-            tail_off = max(0, ((size - 1) // CHUNK_SIZE) * CHUNK_SIZE)
-            tail_len = min(
-                CHUNK_SIZE,
-                ((size - tail_off + ALIGNMENT - 1) // ALIGNMENT) * ALIGNMENT,
-            )
-            if tail_len > 0:
-                data = await peek(tail_off, tail_len)
-        return scan_codecs(data) if data else ""
+        """Fetch the moov box region (start or end of file) and scan it.
+        Never raises — codec info is nice-to-have, not essential."""
+        try:
+            data = head if b"moov" in head else b""
+            if not data and size:
+                # Fetch the full 1 MiB block that contains the end of the file:
+                # limit=1MB is the only valid size for a full block (1MB % limit
+                # == 0 rule), and a request that runs past EOF just returns
+                # fewer bytes.
+                tail_off = max(0, ((size - 1) // CHUNK_SIZE) * CHUNK_SIZE)
+                data = await peek(tail_off, CHUNK_SIZE)
+            return scan_codecs(data) if data else ""
+        except Exception as e:
+            log.warning("Codec sniff skipped: %s", e)
+            return ""
 
     async def probe_codecs(self, file_id: str, size: int) -> str:
         """Fast codec-only sniff (2 requests) for files whose size is known."""
