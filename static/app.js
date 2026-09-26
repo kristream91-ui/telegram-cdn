@@ -127,22 +127,14 @@ function renderHome() {
   }
 
   html += `<section class="section">
-    <div class="chips" style="margin-bottom:18px;">
-      ${["all", "video", "audio", "image", "doc"].map(k =>
-        `<button class="chip${k === kind ? " on" : ""}" data-kind="${k}">
-          ${({ all: "All", video: "Movies", audio: "Music", image: "Photos", doc: "Files" })[k]}
-        </button>`).join("")}
-    </div>
+    <h2>All movies</h2>
     ${files.length
       ? `<div class="grid">${files.map(f => cardHTML(f, true)).join("")}</div>`
       : `<div class="empty"><h3>Nothing here yet</h3>
-         <p>Send a file to the bot on Telegram, or paste a file_id with the ＋ Add button.</p></div>`}
+         <p>Send an MP4 to the bot on Telegram, or paste a file_id with the ＋ Add button.</p></div>`}
   </section>`;
 
   app.innerHTML = html;
-
-  app.querySelectorAll(".chip").forEach(c =>
-    c.addEventListener("click", () => { activeKind = c.dataset.kind; renderHome(); }));
 }
 
 async function renderWatch(uuid) {
