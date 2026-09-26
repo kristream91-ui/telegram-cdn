@@ -31,8 +31,36 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 START_TIME = time.time()
 db = Database(os.path.join(BASE_DIR, "files.db"))
 
-bot: Client = None
-streamer: TelegramStreamer = None
+
+def _assemble_assets():
+    """Rebuild binary brand assets (logo, favicon) from base64 text chunks.
+
+    Binary files can't be pushed reliably through the git API layer this app
+    is deployed with, so they travel as small text chunks and are decoded
+    here at startup. Runs in milliseconds and never crashes the app.
+    """
+    import base64 as _b64
+    src = os.path.join(BASE_DIR, "static", "assets")
+    if not os.path.isdir(src):
+        return
+    for name in ("logo.webp", "favicon.png"):
+        base = name.rsplit(".", 1)[0] + ".b64"
+        parts = sorted(
+            f for f in os.listdir(src)
+            if f.startswith(base + ".") and f[len(base) + 1:].isdigit()
+        )
+        if not parts:
+            continue
+        try:
+            data = _b64.b64decode("".join(
+                open(os.path.join(src, p)).read().strip() for p in parts))
+            with open(os.path.join(BASE_DIR, "static", name), "wb") as fh:
+                fh.write(data)
+        except Exception as e:
+            log.warning("Asset assembly failed for %s: %s", name, e)
+
+
+_assemble_assets()
 
 MEDIA_FILTER = (
     filters.video | filters.document | filters.audio | filters.photo | filters.voice
