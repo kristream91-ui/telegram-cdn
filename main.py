@@ -287,7 +287,7 @@ async def stream_response(row, request: Request, as_attachment=False):
 
     if as_attachment:
         fname = (row["file_name"] or row["uuid"]).replace('"', "")
-        disp = f'attachment; filename="{fname}"; filename*=UTF-8\\'{fname}'
+        disp = f'attachment; filename="{fname}"; filename*=UTF-8\'\'{fname}'
     else:
         disp = "inline"
 
