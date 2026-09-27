@@ -287,6 +287,7 @@ input { font-family: inherit; }
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 34px; opacity: .5;
+  color: var(--blue2);
   background: radial-gradient(120% 130% at 20% 10%, #16294e 0%, #0a1326 65%);
 }
 
@@ -384,6 +385,7 @@ input { font-family: inherit; }
   background: rgba(244, 63, 94, .10);
   border: 1px solid rgba(244, 63, 94, .35);
   font-size: 13.5px; line-height: 1.5;
+  display: flex; gap: 8px; align-items: flex-start;
 }
 
 .watch-head {
@@ -425,7 +427,7 @@ input { font-family: inherit; }
   border-radius: 16px;
   padding: 26px;
   box-shadow: var(--shadow), 0 0 60px rgba(0, 174, 239, .12);
-  animation: pop .18s ease-out;
+  animation: pop .25s cubic-bezier(.34, 1.4, .64, 1);
 }
 @keyframes pop { from { transform: scale(.95); opacity: 0; } }
 
@@ -475,9 +477,11 @@ input { font-family: inherit; }
   padding: 11px 20px; border-radius: 999px;
   font-size: 13px; font-weight: 500;
   box-shadow: var(--glow), var(--shadow);
-  animation: pop .18s ease-out;
+  animation: toastIn .35s cubic-bezier(.34, 1.56, .64, 1);
   max-width: 90vw; text-align: center;
+  display: flex; align-items: center; gap: 6px;
 }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 16px) scale(.92); } }
 
 /* ---------------- footer ---------------- */
 
@@ -770,3 +774,106 @@ input { font-family: inherit; }
   font: 600 12.5px/1 'Poppins', sans-serif; cursor: pointer; transition: all .15s;
 }
 .auth-tab.active { color: #06080f; background: #f5c518; border-color: #f5c518; }
+
+/* ================================================================
+   PREMIUM MOTION & SVG ICONS
+   ================================================================ */
+
+svg.ic { flex: none; vertical-align: -0.15em; }
+.btn svg.ic { margin-right: 2px; }
+
+.back-btn { margin-bottom: 16px; display: inline-flex; }
+
+/* ---- entrance animations ---- */
+
+@keyframes rise { from { opacity: 0; transform: translateY(22px); } }
+@keyframes cardIn { from { opacity: 0; transform: translateY(26px) scale(.96); } }
+
+.hero .info > * { animation: rise .65s cubic-bezier(.22, .9, .32, 1) both; }
+.hero .info > *:nth-child(2) { animation-delay: .07s; }
+.hero .info > *:nth-child(3) { animation-delay: .14s; }
+.hero .info > *:nth-child(4) { animation-delay: .21s; }
+.hero .info > *:nth-child(5) { animation-delay: .28s; }
+
+.hero .backdrop { animation: heroZoom 16s ease-out both; }
+@keyframes heroZoom { from { transform: scale(1.08); } }
+
+.row-scroll .card, .grid .card {
+  animation: cardIn .5s cubic-bezier(.22, .9, .32, 1) both;
+}
+.row-scroll .card:nth-child(2), .grid .card:nth-child(2) { animation-delay: .04s; }
+.row-scroll .card:nth-child(3), .grid .card:nth-child(3) { animation-delay: .08s; }
+.row-scroll .card:nth-child(4), .grid .card:nth-child(4) { animation-delay: .12s; }
+.row-scroll .card:nth-child(5), .grid .card:nth-child(5) { animation-delay: .16s; }
+.row-scroll .card:nth-child(6), .grid .card:nth-child(6) { animation-delay: .2s; }
+.row-scroll .card:nth-child(7), .grid .card:nth-child(7) { animation-delay: .24s; }
+.row-scroll .card:nth-child(8), .grid .card:nth-child(8) { animation-delay: .28s; }
+
+.row-section { animation: rise .55s cubic-bezier(.22, .9, .32, 1) both; }
+
+.page > * { animation: rise .5s cubic-bezier(.22, .9, .32, 1) both; }
+.page > *:nth-child(2) { animation-delay: .06s; }
+.page > *:nth-child(3) { animation-delay: .12s; }
+.page > *:nth-child(4) { animation-delay: .18s; }
+
+.ep-list .ep-row { animation: rise .45s cubic-bezier(.22, .9, .32, 1) both; }
+.ep-list .ep-row:nth-child(2) { animation-delay: .04s; }
+.ep-list .ep-row:nth-child(3) { animation-delay: .08s; }
+.ep-list .ep-row:nth-child(4) { animation-delay: .12s; }
+.ep-list .ep-row:nth-child(5) { animation-delay: .16s; }
+.ep-list .ep-row:nth-child(6) { animation-delay: .2s; }
+
+.player-wrap { animation: cardIn .6s cubic-bezier(.22, .9, .32, 1) both; }
+.watch-head { animation: rise .5s .1s cubic-bezier(.22, .9, .32, 1) both; }
+
+/* ---- sheen sweep on brand buttons ---- */
+
+.btn.primary, .btn.gold { position: relative; overflow: hidden; }
+.btn.primary::after, .btn.gold::after {
+  content: ""; position: absolute; top: -2px; bottom: -2px;
+  width: 40%; left: -70%;
+  transform: skewX(-18deg);
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, .38), transparent);
+  pointer-events: none;
+}
+.btn.primary:hover::after, .btn.gold:hover::after { animation: sheen .9s ease; }
+@keyframes sheen { to { left: 135%; } }
+
+/* ---- icon accents & micro-interactions ---- */
+
+.drawer-item svg { color: var(--blue2); transition: transform .2s; }
+.drawer-item:hover svg { transform: scale(1.15); }
+
+.tab svg {
+  transition: transform .25s cubic-bezier(.34, 1.56, .64, 1), color .2s;
+}
+.tab.active svg { transform: translateY(-2px) scale(1.1); }
+.tab.active .t-ico { animation: tabPop .35s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes tabPop { 40% { transform: scale(1.2); } }
+
+.dl-ico svg { color: var(--gold); }
+.settings-card h3 svg { color: var(--gold); margin-right: 6px; vertical-align: -3px; }
+.page-title svg { color: var(--gold); margin-right: 6px; vertical-align: -4px; }
+.admin-title svg { color: var(--gold); margin-right: 8px; vertical-align: -4px; }
+.empty .icon svg, .error-box .icon svg { color: var(--blue2); opacity: .9; }
+.ep-num svg { vertical-align: -3px; }
+.ep-play { display: flex; align-items: center; justify-content: center; }
+
+.card .thumb img { transition: transform .45s cubic-bezier(.22, .9, .32, 1); }
+.card:hover .thumb img { transform: scale(1.08); }
+
+.row-arrow { transition: opacity .2s, color .2s, transform .2s; }
+.row-arrow:hover { transform: scale(1.2); }
+
+/* ambient brand glow slowly breathes */
+body::before { animation: glowDrift 16s ease-in-out infinite alternate; }
+@keyframes glowDrift { from { opacity: .65; } to { opacity: 1; } }
+
+/* respect users who disable motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
