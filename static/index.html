@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -18,8 +18,12 @@
       <img src="/static/logo.webp" alt="Ani77">
     </a>
     <div class="nav-actions">
-      <button id="searchToggleBtn" class="nav-icon-btn" title="Search" aria-label="Search">🔍</button>
-      <button id="hamburgerBtn" class="nav-icon-btn" title="Menu" aria-label="Menu">☰</button>
+      <button id="searchToggleBtn" class="nav-icon-btn" title="Search" aria-label="Search">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>
+      </button>
+      <button id="hamburgerBtn" class="nav-icon-btn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="14" y2="18"></line></svg>
+      </button>
     </div>
     <div class="nav-search hidden" id="navSearchWrap">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -35,24 +39,42 @@
     <aside class="drawer-panel" role="menu" aria-label="Menu">
       <div class="drawer-head">
         <span class="drawer-brand">Ani77</span>
-        <button class="nav-icon-btn" id="drawerClose" title="Close" aria-label="Close">✕</button>
+        <button class="nav-icon-btn" id="drawerClose" title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
       </div>
       <div id="drawerUser"></div>
       <div class="drawer-sep"></div>
-      <a class="drawer-item" href="#/" data-close>🏠 Home</a>
-      <a class="drawer-item" href="#/schedule" data-close>📅 Schedule · Events & News</a>
-      <a class="drawer-item" href="#/settings" data-close>⬇️ Downloads & Settings</a>
+      <a class="drawer-item" href="#/" data-close>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h5v-6h4v6h5V9.5"></path></svg>Home
+      </a>
+      <a class="drawer-item" href="#/schedule" data-close>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="3" x2="8" y2="7"></line><line x1="16" y1="3" x2="16" y2="7"></line></svg>Schedule · Events & News
+      </a>
+      <a class="drawer-item" href="#/settings" data-close>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Downloads & Settings
+      </a>
       <div class="drawer-sep"></div>
-      <button class="drawer-item" id="drawerAdd">＋ Add a file</button>
-      <a class="drawer-item" href="#/admin" data-close>🛡️ Admin panel</a>
+      <button class="drawer-item" id="drawerAdd">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add a file
+      </button>
+      <a class="drawer-item" href="#/admin" data-close>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Admin panel
+      </a>
     </aside>
   </div>
 
   <!-- bottom tab bar (mobile) -->
   <nav id="tabbar" aria-label="Main">
-    <a href="#/" class="tab" data-tab="home"><span class="t-ico">🏠</span><span class="t-lbl">Home</span></a>
-    <a href="#/schedule" class="tab" data-tab="schedule"><span class="t-ico">📅</span><span class="t-lbl">Schedule</span></a>
-    <a href="#/settings" class="tab" data-tab="settings"><span class="t-ico">⚙️</span><span class="t-lbl">More</span></a>
+    <a href="#/" class="tab" data-tab="home">
+      <span class="t-ico"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h5v-6h4v6h5V9.5"></path></svg></span><span class="t-lbl">Home</span>
+    </a>
+    <a href="#/schedule" class="tab" data-tab="schedule">
+      <span class="t-ico"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="3" x2="8" y2="7"></line><line x1="16" y1="3" x2="16" y2="7"></line></svg></span><span class="t-lbl">Schedule</span>
+    </a>
+    <a href="#/settings" class="tab" data-tab="settings">
+      <span class="t-ico"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><circle cx="9" cy="6" r="2.4"></circle><line x1="4" y1="12" x2="20" y2="12"></line><circle cx="15" cy="12" r="2.4"></circle><line x1="4" y1="18" x2="20" y2="18"></line><circle cx="7" cy="18" r="2.4"></circle></svg></span><span class="t-lbl">More</span>
+    </a>
   </nav>
 
   <main id="app"></main>
@@ -86,7 +108,7 @@
 
   <div id="authModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-box auth-card">
-      <h2>Welcome to Ani77 👋</h2>
+      <h2>Welcome to Ani77</h2>
       <p class="hint">Log in to get your own <b>Continue Watching</b> — synced across
         devices. New here? Tap <b>Sign Up</b>, it takes 10 seconds.</p>
       <div class="auth-tabs">
