@@ -487,7 +487,7 @@ input { font-family: inherit; }
 .admin-title { font-family: "Bebas Neue", sans-serif; font-size: 36px; letter-spacing: 1px; margin: 8px 0 4px; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 8px; }
-.stat { background: var(--panel, #0b1424); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.stat { background: var(--panel, #0b1426); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
 .stat b { display: block; font-size: 24px; color: var(--blue2, #00d4ff); font-family: "Bebas Neue", sans-serif; letter-spacing: .5px; }
 .stat span { font-size: 11px; color: #8aa0bf; text-transform: uppercase; letter-spacing: .8px; }
 
@@ -563,3 +563,41 @@ input { font-family: inherit; }
 .series-hero .s-info { position: relative; z-index: 1; padding: 80px 22px 22px; max-width: 720px; }
 
 .meta-edit input[type="file"] { color: var(--muted); }
+
+/* ---------------- user profiles / auth ---------------- */
+
+.nav-user { display: flex; align-items: center; }
+.user-wrap { position: relative; display: flex; align-items: center; }
+.user-chip { background: none; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; }
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: #06080f;
+  background: linear-gradient(135deg, #f5c518, #ff9d2e);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .12);
+  transition: box-shadow .15s;
+}
+.user-chip:hover .avatar { box-shadow: 0 0 0 2px rgba(245, 197, 24, .55); }
+.user-menu {
+  position: absolute; top: calc(100% + 10px); right: 0;
+  background: var(--panel, #0b1424); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px; min-width: 170px;
+  box-shadow: var(--shadow), 0 0 40px rgba(0, 0, 0, .5);
+  z-index: 60; animation: pop .15s ease-out;
+}
+.user-menu .um-name {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  margin-bottom: 10px; word-break: break-all;
+}
+.auth-tabs { display: flex; gap: 8px; margin: 4px 0 14px; }
+.auth-tab {
+  flex: 1; padding: 9px 0; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted);
+  font: 600 12.5px/1 'Poppins', sans-serif; cursor: pointer; transition: all .15s;
+}
+.auth-tab.active { color: #06080f; background: #f5c518; border-color: #f5c518; }
+
+@media (max-width: 720px) {
+  #authBtn span, #authBtn { padding: 8px 10px; }
+  .avatar { width: 30px; height: 30px; font-size: 13px; }
+}

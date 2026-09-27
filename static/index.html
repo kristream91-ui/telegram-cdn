@@ -24,6 +24,7 @@
       <input id="search" type="search" placeholder="Search anime, movies..." autocomplete="off">
     </div>
     <div class="nav-actions">
+      <div id="navUser" class="nav-user"></div>
       <button id="addBtn" class="btn ghost" title="Add a file by Telegram file_id">
         <span class="plus">+</span> Add
       </button>
@@ -56,6 +57,27 @@
       <div class="modal-actions">
         <button id="cancelAdd" class="btn ghost">Cancel</button>
         <button id="confirmAdd" class="btn primary">Detect & Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="authModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box auth-card">
+      <h2>Welcome to Ani77 👋</h2>
+      <p class="hint">Log in to get your own <b>Continue Watching</b> — synced across
+        devices. New here? Tap <b>Sign Up</b>, it takes 10 seconds.</p>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login" type="button">Log In</button>
+        <button class="auth-tab" data-tab="signup" type="button">Sign Up</button>
+      </div>
+      <label>Username</label>
+      <input id="authUser" placeholder="e.g. kri" autocomplete="username" spellcheck="false">
+      <label>Password</label>
+      <input id="authPass" type="password" placeholder="••••••••" autocomplete="current-password">
+      <div id="authStatus" class="add-status hidden"></div>
+      <div class="modal-actions">
+        <button id="authCancel" class="btn ghost" type="button">Cancel</button>
+        <button id="authGo" class="btn primary" type="button">Log In</button>
       </div>
     </div>
   </div>
