@@ -56,6 +56,29 @@ class Database:
             self._conn.execute("ALTER TABLE series_meta ADD COLUMN poster TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # user profiles (sign up / log in) + per-user watch progress
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                uid        INTEGER PRIMARY KEY AUTOINCREMENT,
+                username   TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                pass_hash  TEXT NOT NULL,
+                created_at REAL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS user_progress (
+                uid        INTEGER NOT NULL,
+                uuid       TEXT NOT NULL,
+                pos        REAL DEFAULT 0,
+                dur        REAL DEFAULT 0,
+                updated_at REAL DEFAULT 0,
+                PRIMARY KEY (uid, uuid)
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            );
+            """
+        )
         self._conn.commit()
 
     # ------------------------------------------------------------------ #
@@ -239,3 +262,66 @@ class Database:
         with self._lock:
             (n,) = self._conn.execute("SELECT COUNT(*) FROM files").fetchone()
         return n
+
+    # ------------------------------------------------------------------ #
+    #  Users & profiles                                                   #
+    # ------------------------------------------------------------------ #
+
+    def get_setting(self, key: str, default=None):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str):
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+            self._conn.commit()
+
+    def create_user(self, username: str, pass_hash: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO users (username, pass_hash, created_at) VALUES (?, ?, ?)",
+                (username, pass_hash, time.time()),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def get_user_by_name(self, username: str):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+        return row
+
+    def get_user(self, uid: int):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM users WHERE uid = ?", (uid,)
+            ).fetchone()
+        return row
+
+    def set_progress(self, uid: int, uuid: str, pos: float, dur: float):
+        """Upsert a user's watch position for a file."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO user_progress (uid, uuid, pos, dur, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(uid, uuid) DO UPDATE SET "
+                "pos = excluded.pos, dur = excluded.dur, "
+                "updated_at = excluded.updated_at",
+                (uid, uuid, pos, dur, time.time()),
+            )
+            self._conn.commit()
+
+    def progress_all(self, uid: int) -> dict:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT uuid, pos, dur FROM user_progress WHERE uid = ?", (uid,)
+            ).fetchall()
+        return {r["uuid"]: {"pos": r["pos"], "dur": r["dur"]} for r in rows}
