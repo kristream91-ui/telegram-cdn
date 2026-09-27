@@ -739,14 +739,129 @@ async function renderAdmin() {
 
 function route() {
   const h = location.hash || "#/";
-  if (h.startsWith("#/watch/")) renderWatch(decodeURIComponent(h.split("/")[2] || ""));
-  else if (h.startsWith("#/series/")) renderSeries(decodeURIComponent(h.split("/")[2] || ""));
-  else if (h.startsWith("#/admin")) renderAdmin();
+  closeDrawer();
+  if (h.startsWith("#/watch/")) { setTab(null); renderWatch(decodeURIComponent(h.split("/")[2] || "")); }
+  else if (h.startsWith("#/series/")) { setTab(null); renderSeries(decodeURIComponent(h.split("/")[2] || "")); }
+  else if (h.startsWith("#/admin")) { setTab(null); renderAdmin(); }
+  else if (h.startsWith("#/schedule")) { setTab("schedule"); renderSchedule(); }
+  else if (h.startsWith("#/settings")) { setTab("settings"); renderSettings(); }
   else {
+    setTab("home");
     document.title = "Ani77 — Stream Hindi Dub Anime";
     renderHome();
     window.scrollTo(0, 0);
   }
+}
+
+function setTab(id) {
+  document.querySelectorAll("#tabbar .tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.tab === id));
+}
+
+/* -------------------------------------------------------------- */
+/*  schedule page (Events & News)                                  */
+/* -------------------------------------------------------------- */
+
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = Math.round((today - that) / 86400000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return diff + " days ago";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function renderSchedule() {
+  document.title = "Schedule — Ani77";
+  if (LOAD_FAILED) {
+    app.innerHTML = errorBoxHTML("⚠️", "Couldn't reach the server",
+      "The app might be waking up from sleep. Give it a few seconds and retry.", true);
+    return;
+  }
+  if (!FILES.length) {
+    app.innerHTML = `<div class="page">
+      <h1 class="page-title">📅 Schedule · Events & News</h1>
+      <div class="empty"><div class="icon">📅</div><h3>Nothing scheduled yet</h3>
+      <p>Add files and they'll show up here as a release timeline.</p></div>
+    </div>`;
+    return;
+  }
+  const eps = [...FILES].sort((a, b) => b.created_at - a.created_at);
+  const groups = {};
+  eps.forEach(f => {
+    const lbl = dayLabel(f.created_at);
+    (groups[lbl] = groups[lbl] || []).push(f);
+  });
+  app.innerHTML = `<div class="page">
+    <h1 class="page-title">📅 Schedule · Events & News</h1>
+    <p class="page-sub">New episodes & movies, latest first</p>
+    ${Object.entries(groups).map(([day, list]) => `
+    <section class="row-section">
+      <h2>${esc(day)} <span class="count">${list.length}</span></h2>
+      <div class="ep-list">${list.map(f => `
+        <a class="ep-row" href="#/watch/${f.uuid}">
+          <span class="ep-num">${f.series ? "E" + (f.episode || "?") : "🎬"}</span>
+          <span class="ep-name">${esc(displayName(f))}${f.series ? ` · <b>S${f.season || 1}</b>` : ""}</span>
+          <span class="ep-dur">${fmtDur(f.duration)}${codecTag(f)}</span>
+          <span class="ep-play">▶</span>
+        </a>`).join("")}</div>
+    </section>`).join("")}
+  </div>`;
+}
+
+/* -------------------------------------------------------------- */
+/*  downloads & settings page                                      */
+/* -------------------------------------------------------------- */
+
+function renderSettings() {
+  document.title = "More — Ani77";
+  const profile = USER
+    ? `<div class="drawer-profile" style="margin:0;">
+        <span class="avatar avatar-lg">${esc((USER.name || "?").charAt(0).toUpperCase())}</span>
+        <div class="dp-info"><b>${esc(USER.name)}</b><span>Logged in</span></div>
+      </div>
+      <button class="btn ghost" id="logoutBtn2" style="width:100%;margin-top:12px;">Log Out</button>`
+    : `<p class="page-sub" style="margin-bottom:12px;">Log in to sync your Continue Watching across devices.</p>
+      <div class="drawer-auth">
+        <button class="btn ghost" id="sLogin">Log In</button>
+        <button class="btn primary" id="sSignup">Sign Up</button>
+      </div>`;
+  const downloads = FILES.length
+    ? FILES.map(f => `
+      <a class="dl-row" href="/download/${f.uuid}">
+        <span class="dl-ico">⬇️</span>
+        <span class="dl-name">${esc(f.name || f.uuid)}
+          <small>${fmtSize(f.size)}${f.duration ? " · " + fmtDur(f.duration) : ""}${f.series ? " · S" + (f.season || 1) + "E" + (f.episode || "?") : ""}</small></span>
+        <span class="dl-go">Download</span>
+      </a>`).join("")
+    : `<div class="empty" style="padding:30px"><p>No files yet — ask the admin to add some.</p></div>`;
+  app.innerHTML = `<div class="page">
+    <h1 class="page-title">⬇️ Downloads & Settings</h1>
+
+    <section class="settings-card">
+      <h3>👤 Profile</h3>
+      ${profile}
+    </section>
+
+    <section class="settings-card">
+      <h3>⬇️ Downloads</h3>
+      <p class="page-sub" style="margin-bottom:10px;">Tap a file to download it to your device (watch in MX Player / VLC).</p>
+      ${downloads}
+    </section>
+
+    <section class="settings-card">
+      <h3>⚙️ More</h3>
+      <a class="drawer-item" href="#/admin">🛡️ Admin panel</a>
+      <button class="drawer-item" id="sAdd">＋ Add a file by file_id</button>
+    </section>
+  </div>`;
+  const l2 = $("#logoutBtn2");
+  if (l2) l2.addEventListener("click", () => { doLogout(); route(); });
+  const sl = $("#sLogin"); if (sl) sl.addEventListener("click", () => openAuthModal("login"));
+  const ss = $("#sSignup"); if (ss) ss.addEventListener("click", () => openAuthModal("signup"));
+  const sa = $("#sAdd"); if (sa) sa.addEventListener("click", () => openModal());
 }
 
 async function loadFiles() {
@@ -797,31 +912,60 @@ function doLogout(silent) {
 }
 
 function renderNavUser() {
-  const el = $("#navUser");
+  /* the profile area inside the hamburger drawer */
+  const el = $("#drawerUser");
   if (!el) return;
   if (USER) {
     const letter = (USER.name || "?").charAt(0).toUpperCase();
     el.innerHTML = `
-      <div class="user-wrap">
-        <button class="user-chip" id="userChip" title="${esc(USER.name)}">
-          <span class="avatar">${esc(letter)}</span>
-        </button>
-        <div class="user-menu hidden" id="userMenu">
-          <div class="um-name">👤 ${esc(USER.name)}</div>
-          <button class="btn ghost" id="logoutBtn" style="width:100%">Log Out</button>
+      <div class="drawer-profile">
+        <span class="avatar avatar-lg">${esc(letter)}</span>
+        <div class="dp-info">
+          <b>${esc(USER.name)}</b>
+          <span>Profile</span>
         </div>
-      </div>`;
-    $("#userChip").addEventListener("click", e => {
-      e.stopPropagation();
-      $("#userMenu").classList.toggle("hidden");
-    });
+      </div>
+      <button class="btn ghost" id="logoutBtn" style="width:100%">Log Out</button>`;
     $("#logoutBtn").addEventListener("click", () => {
+      closeDrawer();
       doLogout();
       route();
     });
   } else {
-    el.innerHTML = `<button class="btn ghost" id="authBtn" title="Log in or create a profile">👤 Log In</button>`;
-    $("#authBtn").addEventListener("click", () => openAuthModal("login"));
+    el.innerHTML = `
+      <div class="drawer-auth">
+        <button class="btn ghost" id="drawerLogin">Log In</button>
+        <button class="btn primary" id="drawerSignup">Sign Up</button>
+      </div>`;
+    $("#drawerLogin").addEventListener("click", () => {
+      closeDrawer();
+      openAuthModal("login");
+    });
+    $("#drawerSignup").addEventListener("click", () => {
+      closeDrawer();
+      openAuthModal("signup");
+    });
+  }
+}
+
+function openDrawer() {
+  $("#drawer").classList.remove("hidden");
+}
+function closeDrawer() {
+  const d = $("#drawer");
+  if (d) d.classList.add("hidden");
+}
+
+function toggleSearch() {
+  const w = $("#navSearchWrap");
+  if (!w) return;
+  const opening = w.classList.contains("hidden");
+  w.classList.toggle("hidden");
+  if (opening) {
+    if (location.hash && location.hash !== "#/" && !location.hash.startsWith("#/watch")) {
+      location.hash = "#/";
+    }
+    setTimeout(() => $("#search").focus(), 50);
   }
 }
 
@@ -906,20 +1050,20 @@ async function boot() {
     if (!location.hash || location.hash === "#/") renderHome();
   });
 
-  $("#addBtn").addEventListener("click", openModal);
-  $("#cancelAdd").addEventListener("click", closeModal);
-  $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
-  document.addEventListener("keydown", e => {
-    if (e.key === "Escape") { closeModal(); closeAuthModal(); }
+  /* hamburger drawer + search toggle + bottom tabs */
+  $("#hamburgerBtn").addEventListener("click", openDrawer);
+  $("#drawerClose").addEventListener("click", closeDrawer);
+  $("#drawerBackdrop").addEventListener("click", closeDrawer);
+  document.querySelectorAll("#drawer [data-close]").forEach(el =>
+    el.addEventListener("click", closeDrawer));
+  $("#drawerAdd").addEventListener("click", () => {
+    closeDrawer();
+    openModal();
   });
+  $("#searchToggleBtn").addEventListener("click", toggleSearch);
 
-  /* profiles */
   USER = userFromStorage();
   renderNavUser();
-  document.addEventListener("click", e => {
-    const m = $("#userMenu");
-    if (m && !e.target.closest(".user-wrap")) m.classList.add("hidden");
-  });
   $("#authCancel").addEventListener("click", closeAuthModal);
   $("#authModal").addEventListener("click", e => {
     if (e.target.id === "authModal") closeAuthModal();
@@ -936,6 +1080,12 @@ async function boot() {
   });
   $("#authPass").addEventListener("keydown", e => {
     if (e.key === "Enter") submitAuth();
+  });
+
+  $("#cancelAdd").addEventListener("click", closeModal);
+  $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") { closeModal(); closeAuthModal(); closeDrawer(); }
   });
 
   $("#confirmAdd").addEventListener("click", async () => {
