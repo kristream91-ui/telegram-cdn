@@ -452,6 +452,65 @@ def _require_admin(request: Request):
 
 
 # --------------------------------------------------------------------- #
+#  User accounts (profiles: sign up / log in / per-user progress)        #
+# --------------------------------------------------------------------- #
+
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
+
+
+def _hash_password(pw: str, salt: str = None) -> str:
+    """PBKDF2-SHA256, stored as '<salt-hex>$<digest-hex>'."""
+    salt = salt or os.urandom(16).hex()
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", pw.encode(), bytes.fromhex(salt), 120_000
+    ).hex()
+    return f"{salt}${digest}"
+
+
+def _verify_password(pw: str, stored: str) -> bool:
+    salt, _, digest = stored.partition("$")
+    if not salt or not digest:
+        return False
+    return hmac.compare_digest(_hash_password(pw, salt), stored)
+
+
+def _auth_secret() -> bytes:
+    """Stable per-DB secret for signing user tokens (random on first use)."""
+    s = db.get_setting("auth_secret")
+    if not s:
+        s = os.urandom(32).hex()
+        db.set_setting("auth_secret", s)
+    return s.encode()
+
+
+def _user_token(uid: int, ttl: int = 30 * 24 * 3600) -> tuple:
+    """Stateless user token: '<uid>.<expiry>.<signature>'."""
+    exp = int(time.time()) + ttl
+    sig = hmac.new(
+        _auth_secret(), f"ani77-user:{uid}:{exp}".encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{uid}.{exp}.{sig}", exp
+
+
+def _current_user(request: Request):
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return None
+    uid_s, _, rest = auth[7:].strip().partition(".")
+    exp, _, sig = rest.partition(".")
+    if not uid_s.isdigit() or not exp.isdigit() or not sig:
+        return None
+    if int(exp) < int(time.time()):
+        return None
+    expect = hmac.new(
+        _auth_secret(), f"ani77-user:{uid_s}:{exp}".encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig, expect):
+        return None
+    return db.get_user(int(uid_s))
+
+
+# --------------------------------------------------------------------- #
 #  Web app                                                               #
 # --------------------------------------------------------------------- #
 
@@ -551,6 +610,81 @@ async def health():
         "files": db.count(),
         "uptime_sec": round(time.time() - START_TIME, 1),
     }
+
+
+@app.post("/api/auth/signup")
+async def auth_signup(body: dict):
+    """Create a profile (open registration)."""
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    if not USERNAME_RE.fullmatch(username):
+        raise HTTPException(400, "Username must be 3-20 letters, numbers or _ (no spaces)")
+    if len(password) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
+    if len(password) > 200:
+        raise HTTPException(400, "Password is too long")
+    if db.get_user_by_name(username):
+        raise HTTPException(409, "That username is already taken")
+    uid = db.create_user(username, _hash_password(password))
+    token, exp = _user_token(uid)
+    return {"token": token, "expires_at": exp, "user": {"id": uid, "name": username}}
+
+
+@app.post("/api/auth/login")
+async def auth_login(body: dict):
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    user = db.get_user_by_name(username)
+    if user is None or not _verify_password(password, user["pass_hash"]):
+        await asyncio.sleep(1)          # slow down brute-force attempts
+        raise HTTPException(401, "Wrong username or password")
+    token, exp = _user_token(user["uid"])
+    return {
+        "token": token, "expires_at": exp,
+        "user": {"id": user["uid"], "name": user["username"]},
+    }
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    user = _current_user(request)
+    if user is None:
+        raise HTTPException(401, "Not logged in")
+    return {"id": user["uid"], "name": user["username"]}
+
+
+@app.get("/api/progress")
+async def get_progress(request: Request):
+    """The logged-in user's watch positions: {uuid: {pos, dur}}."""
+    user = _current_user(request)
+    if user is None:
+        raise HTTPException(401, "Not logged in")
+    return db.progress_all(user["uid"])
+
+
+@app.post("/api/progress/{uuid}")
+async def save_progress(uuid: str, request: Request, body: dict):
+    """Save the logged-in user's watch position for a file."""
+    user = _current_user(request)
+    if user is None:
+        raise HTTPException(401, "Not logged in")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    try:
+        pos = float(body.get("pos") or 0)
+        dur = float(body.get("dur") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "pos / dur must be numbers")
+    if pos < 0 or dur < 0 or dur > 24 * 3600:
+        raise HTTPException(400, "pos / dur look wrong")
+    if not db.get(uuid):
+        raise HTTPException(404, "File not found")
+    db.set_progress(user["uid"], uuid, pos, dur)
+    return {"ok": True}
 
 
 @app.get("/api/files")
