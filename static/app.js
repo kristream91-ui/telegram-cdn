@@ -20,6 +20,42 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
 }
 
+/* -------------------------------------------------------------- */
+/*  SVG icon set (stroke icons, inherit currentColor)              */
+/* -------------------------------------------------------------- */
+
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>',
+  close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/>',
+  sliders: '<line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2.4"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2.4"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="7" cy="18" r="2.4"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  play: '<path d="M7 4.5v15l13-7.5z" fill="currentColor" stroke="none"/>',
+  chevL: '<polyline points="15 18 9 12 15 6"/>',
+  chevR: '<polyline points="9 18 15 12 9 6"/>',
+  arrowL: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  tv: '<rect x="2" y="7" width="20" height="14" rx="2"/><polyline points="17 2 12 7 7 2"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="16" y2="21"/><line x1="3" y1="8" x2="8" y2="8"/><line x1="3" y1="16" x2="8" y2="16"/><line x1="16" y1="8" x2="21" y2="8"/><line x1="16" y1="16" x2="21" y2="16"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><line x1="5.5" y1="5.5" x2="18.5" y2="18.5"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  tag: '<path d="M12 2H2v10l9.3 9.3a1 1 0 0 0 1.4 0l8.6-8.6a1 1 0 0 0 0-1.4L12 2z"/><circle cx="7" cy="7" r="1"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+};
+
+function icon(name, size) {
+  const s = size || 16;
+  return `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+}
+
 function fmtSize(n) {
   if (!n) return "—";
   const u = ["B", "KB", "MB", "GB", "TB"];
@@ -43,7 +79,7 @@ function displayName(f) {
 
 function toast(msg) {
   const t = $("#toast");
-  t.textContent = msg;
+  t.innerHTML = msg;
   t.classList.remove("hidden");
   clearTimeout(t._h);
   t._h = setTimeout(() => t.classList.add("hidden"), 3000);
@@ -102,11 +138,11 @@ function seriesCardHTML(s) {
   const img = s.poster || (s.thumbUuid ? `/thumb/${s.thumbUuid}` : "");
   const inner = img
     ? `<img src="${img}" loading="lazy" alt="" onerror="this.remove()">`
-    : `<div class="ph">📺</div>`;
+    : `<div class="ph">${icon("tv", 40)}</div>`;
   return `
     <a class="card series-card" href="#/series/${encodeURIComponent(s.name)}" title="${esc(s.name)}">
       <div class="thumb">${inner}
-        <div class="play-overlay"><span>▶</span></div>
+        <div class="play-overlay"><span>${icon("play", 15)}</span></div>
         <span class="badge hd">${badge} · ${s.eps.length} EP</span>
       </div>
       <div class="t">${esc(s.name)}</div>
@@ -144,12 +180,12 @@ function cardHTML(f, showProgress) {
   const img = f.has_thumb
     ? `<img src="/thumb/${f.uuid}" loading="lazy" alt=""
          onerror="this.remove()">` : "";
-  const ph = img ? "" : `<div class="ph">${f.series ? "📺" : "🎬"}</div>`;
+  const ph = img ? "" : `<div class="ph">${icon(f.series ? "tv" : "film", 34)}</div>`;
   const ep = f.series && f.episode ? ` · <b>S${f.season || 1}E${f.episode}</b>` : "";
   return `
     <a class="card" href="#/watch/${f.uuid}" title="${esc(f.name)}">
       <div class="thumb">${img}${ph}
-        <div class="play-overlay"><span>▶</span></div>
+        <div class="play-overlay"><span>${icon("play", 15)}</span></div>
         ${badge}${progress}
       </div>
       <div class="t">${esc(displayName(f))}</div>
@@ -163,9 +199,9 @@ function rowHTML(title, files, id) {
   <section class="row-section">
     <h2>${title} <span class="count">${files.length}</span></h2>
     <div class="row-wrap">
-      <button class="row-arrow left" data-row="${id}" aria-label="Scroll left">‹</button>
+      <button class="row-arrow left" data-row="${id}" aria-label="Scroll left">${icon("chevL", 22)}</button>
       <div class="row-scroll" id="row-${id}">${files.map(f => cardHTML(f, true)).join("")}</div>
-      <button class="row-arrow right" data-row="${id}" aria-label="Scroll right">‹</button>
+      <button class="row-arrow right" data-row="${id}" aria-label="Scroll right">${icon("chevL", 22)}</button>
     </div>
   </section>`;
 }
@@ -180,7 +216,7 @@ function brandHeroHTML() {
       <p class="desc">Your personal OTT library, powered by Telegram. Send an MP4 or TS
         file to the bot or add it with a file_id — and watch it right here, anywhere.</p>
       <div class="cta">
-        <a class="btn gold" href="#" id="heroAdd">＋ Add your first file</a>
+        <a class="btn gold" href="#" id="heroAdd">${icon("plus", 15)} Add your first file</a>
       </div>
     </div>
   </section>`;
@@ -200,8 +236,8 @@ function heroHTML(f) {
       <p class="desc">${desc}</p>
       <div class="meta">${fmtSize(f.size)}${f.duration ? " · " + fmtDur(f.duration) : ""}${f.codecs ? " · " + esc(f.codecs) : ""}</div>
       <div class="cta">
-        <a class="btn primary" href="#/watch/${f.uuid}">▶ Watch now</a>
-        <a class="btn ghost" href="/download/${f.uuid}">⬇ Download</a>
+        <a class="btn primary" href="#/watch/${f.uuid}">${icon("play", 15)} Watch now</a>
+        <a class="btn ghost" href="/download/${f.uuid}">${icon("download", 15)} Download</a>
       </div>
     </div>
   </section>`;
@@ -226,7 +262,7 @@ function renderHome() {
     : FILES;
 
   if (LOAD_FAILED) {
-    app.innerHTML = errorBoxHTML("⚠️", "Couldn't reach the server",
+    app.innerHTML = errorBoxHTML("alert", "Couldn't reach the server",
       "The app might be waking up from sleep. Give it a few seconds and retry.", true);
     return;
   }
@@ -239,7 +275,7 @@ function renderHome() {
 
   if (!files.length) {
     app.innerHTML = heroHTML(FILES[0]) + `
-      <div class="empty"><div class="icon">🔍</div><h3>No results</h3>
+      <div class="empty"><div class="icon">${icon("search", 46)}</div><h3>No results</h3>
       <p>Nothing matches "${esc(q)}".</p></div>`;
     return;
   }
@@ -272,9 +308,9 @@ function renderHome() {
   });
 }
 
-function errorBoxHTML(icon, title, msg, retry) {
+function errorBoxHTML(iconName, title, msg, retry) {
   return `<div class="error-box">
-    <div class="icon">${icon}</div>
+    <div class="icon">${icon(iconName, 46)}</div>
     <h2>${esc(title)}</h2>
     <p>${esc(msg)}</p>
     ${retry ? '<button class="btn primary" id="retryBtn">↻ Retry</button>' : ""}
@@ -304,7 +340,7 @@ async function renderSeries(name) {
 
   app.innerHTML = `
   <div class="watch-page">
-    <a href="#/" class="btn ghost" style="margin-bottom:16px; display:inline-flex;">← Back</a>
+    <a href="#/" class="btn ghost back-btn">${icon("arrowL", 15)} Back</a>
     <section class="series-hero"${back ? ` style="background-image:url('${back}')"` : ""}>
       <div class="s-fade"></div>
       <div class="s-info">
@@ -315,7 +351,7 @@ async function renderSeries(name) {
           ${meta.genre ? esc(meta.genre) + " · " : ""}${seasons.length} season${seasons.length > 1 ? "s" : ""} · ${eps.length} episode${eps.length > 1 ? "s" : ""}</div>
         <p style="color:#c3cfe2;max-width:640px;line-height:1.6;">${esc(desc)}</p>
         <div class="cta" style="display:flex;gap:12px;margin:18px 0 8px;">
-          <a class="btn primary" href="#/watch/${first.uuid}">▶ ${cont ? "Continue E" + (cont.episode || "?") : "Play E1"}</a>
+          <a class="btn primary" href="#/watch/${first.uuid}">${icon("play", 15)} ${cont ? "Continue E" + (cont.episode || "?") : "Play E1"}</a>
         </div>
       </div>
     </section>
@@ -327,7 +363,7 @@ async function renderSeries(name) {
           <span class="ep-num">E${e.episode || "?"}</span>
           <span class="ep-name">${esc(displayName(e))}</span>
           <span class="ep-dur">${fmtDur(e.duration)}${codecTag(e)}</span>
-          <span class="ep-play">▶</span>
+          <span class="ep-play">${icon("play", 13)}</span>
         </a>`).join("")}</div>
     </section>`).join("")}
   </div>`;
@@ -341,20 +377,20 @@ async function renderWatch(uuid) {
     f = await api(`/api/files/${uuid}`);
   } catch (e) {
     app.innerHTML = `<div class="watch-page">` + errorBoxHTML(
-      "🚫", "File not found", e.message + " — it may have been removed.", false)
-      + `<div style="text-align:center"><a class="btn ghost" href="#/">← Back home</a></div></div>`;
+      "ban", "File not found", e.message + " — it may have been removed.", false)
+      + `<div style="text-align:center"><a class="btn ghost" href="#/">${icon("arrowL", 15)} Back home</a></div></div>`;
     return;
   }
 
   const badCodec = /hevc|ac-3|eac-3/i.test(f.codecs || "");
   const isTS = (f.mime || "").toLowerCase() === "video/mp2t";
   const banner = badCodec
-    ? `<div class="codec-banner">⚠️ <b>Codec: ${esc(f.codecs)}</b> — most browsers can't play this.
+    ? `<div class="codec-banner">${icon("alert", 16)} <b>Codec: ${esc(f.codecs)}</b> — most browsers can't play this.
        If it doesn't start, download it and watch in MX Player / VLC.</div>` : "";
 
   app.innerHTML = `
   <div class="watch-page">
-    <a href="#/" class="btn ghost" style="margin-bottom:16px; display:inline-flex;">← Back</a>
+    <a href="#/" class="btn ghost back-btn">${icon("arrowL", 15)} Back</a>
     ${banner}
     <div class="player-wrap"><video id="player" controls playsinline preload="metadata"
       ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
@@ -370,8 +406,8 @@ async function renderWatch(uuid) {
         ${f.caption ? `<div class="caption">${esc(f.caption)}</div>` : ""}
       </div>
       <div class="actions">
-        <a class="btn gold" href="/download/${uuid}">⬇ Download</a>
-        <button class="btn ghost" id="copyBtn">🔗 Copy link</button>
+        <a class="btn gold" href="/download/${uuid}">${icon("download", 15)} Download</a>
+        <button class="btn ghost" id="copyBtn">${icon("link", 15)} Copy link</button>
       </div>
     </div>
 
@@ -407,10 +443,10 @@ async function renderWatch(uuid) {
       if (!wrap) return;
       wrap.innerHTML =
         '<div class="error-box" style="aspect-ratio:auto;padding:70px 20px">' +
-        '<div class="icon">⚠️</div>' +
+        '<div class="icon">' + icon("alert", 46) + '</div>' +
         '<h2>' + title + '</h2>' +
         '<p>' + msg + '</p>' +
-        '<a class="btn gold" href="/download/' + uuid + '">⬇ Download</a></div>';
+        '<a class="btn gold" href="/download/' + uuid + '">' + icon("download", 15) + ' Download</a></div>';
     }
 
     if (isTS) {
@@ -508,13 +544,13 @@ async function renderAdmin() {
     app.innerHTML = `
     <div class="admin-page">
       <div class="modal-box" style="max-width:400px;margin:8vh auto 0">
-        <h2>🛡️ Admin Login</h2>
+        <h2>${icon("shield", 22)} Admin Login</h2>
         <p class="hint">Only the admin can manage the library.</p>
         <label>Password</label>
         <input id="adminPw" type="password" placeholder="••••••••" autocomplete="current-password">
         <div id="adminStatus" class="add-status hidden"></div>
         <div class="modal-actions">
-          <a class="btn ghost" href="#/">← Back</a>
+          <a class="btn ghost" href="#/">${icon("arrowL", 14)} Back</a>
           <button id="adminLogin" class="btn primary">Login</button>
         </div>
       </div>
@@ -530,7 +566,7 @@ async function renderAdmin() {
           body: JSON.stringify({ password: $("#adminPw").value }),
         });
         localStorage.setItem(ADMIN_KEY, JSON.stringify({ tok: j.token, exp: j.expires_at }));
-        toast("Admin login ✓");
+        toast("Admin login " + icon("check", 13));
         renderAdmin();
       } catch (e) {
         const s = $("#adminStatus");
@@ -549,11 +585,11 @@ async function renderAdmin() {
 
   app.innerHTML = `
   <div class="admin-page">
-    <a href="#/" class="btn ghost" style="margin-bottom:16px;display:inline-flex;">← Back to site</a>
-    <h1 class="admin-title">🛡️ Admin Panel</h1>
+    <a href="#/" class="btn ghost back-btn">${icon("arrowL", 15)} Back to site</a>
+    <h1 class="admin-title">${icon("shield", 30)} Admin Panel</h1>
     <div id="adminStats" class="stat-grid"></div>
     <div class="watch-head" style="margin-top:10px;">
-      <h2 style="margin:0;">📺 Content Details <span class="count" id="sCount"></span></h2>
+      <h2 style="margin:0;">${icon("tv", 20)} Content Details <span class="count" id="sCount"></span></h2>
     </div>
     <div id="adminSeries"></div>
     <div class="watch-head" style="margin-top:26px;">
@@ -596,7 +632,7 @@ async function renderAdmin() {
         <td>${esc(s.year || "—")}</td>
         <td>${esc(s.genre || "—")}</td>
         <td style="font-weight:400;">${esc(s.description ? s.description.slice(0, 60) + (s.description.length > 60 ? "…" : "") : "—")}</td>
-        <td class="ops"><button class="btn small" data-meta="${esc(s.name)}">✏️ Edit</button></td>
+        <td class="ops"><button class="btn small" data-meta="${esc(s.name)}">${icon("edit", 14)} Edit</button></td>
       </tr>`).join("")}</tbody></table>`
     : `<div class="empty" style="padding:16px"><p>No series yet — files with SxxExx in the name (e.g. Tensura S4E1.mp4) are grouped automatically.</p></div>`;
 
@@ -614,7 +650,7 @@ async function renderAdmin() {
             <input id="mPoster" type="file" accept="image/*" style="padding:6px;">
             ${s.has_poster ? `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
               <img src="/poster/${encodeURIComponent(name)}" style="height:64px;border-radius:8px;" onerror="this.remove()">
-              <button class="btn small danger" id="mPosterDel">🗑️ Remove poster</button></div>`
+              <button class="btn small danger" id="mPosterDel">${icon("trash", 14)} Remove poster</button></div>`
             : `<div style="font-size:11.5px;color:var(--muted);margin-top:6px;">No poster yet — episode thumbnail (if any) is used instead.</div>`}
           </div>
           <div class="modal-actions">
@@ -627,7 +663,7 @@ async function renderAdmin() {
       if (pdel) pdel.addEventListener("click", async () => {
         try {
           await adminApi("/api/series/" + encodeURIComponent(name) + "/poster", { method: "DELETE" });
-          toast("Poster removed ✓");
+          toast("Poster removed " + icon("check", 13));
           renderAdmin();
         } catch (e) { toast(e.message); }
       });
@@ -652,7 +688,7 @@ async function renderAdmin() {
               description: $("#mDesc").value.trim(),
             }),
           });
-          toast("Details saved ✓");
+          toast("Details saved " + icon("check", 13));
           await loadFiles();
           renderAdmin();
         } catch (e) { toast(e.message); btn2.disabled = false; btn2.textContent = "Save details"; }
@@ -664,8 +700,8 @@ async function renderAdmin() {
   try { files = (await api("/api/files")) || []; } catch { /* keep empty */ }
   $("#aCount").textContent = files.length;
   if (!files.length) {
-    $("#adminList").innerHTML = `<div class="empty" style="padding:30px"><div class="icon">🎬</div><h3>No files yet</h3>
-      <p>Add files with the ＋ Add button or by sending them to the bot.</p></div>`;
+    $("#adminList").innerHTML = `<div class="empty" style="padding:30px"><div class="icon">${icon("film", 46)}</div><h3>No files yet</h3>
+      <p>Add files with the + Add button or by sending them to the bot.</p></div>`;
     return;
   }
   $("#adminList").innerHTML = `<table class="admin-table">
@@ -677,9 +713,9 @@ async function renderAdmin() {
         <td>${fmtSize(f.size)}</td>
         <td>${esc(f.mime || "—")}</td>
         <td class="ops">
-          <button class="btn small" data-act="group" data-uuid="${f.uuid}" data-series="${esc(f.series || "")}" data-season="${f.season || 1}" data-episode="${f.episode || 1}">🏷️ Group</button>
-          <button class="btn small" data-act="rename" data-uuid="${f.uuid}" data-name="${esc(f.name || "")}">✏️ Rename</button>
-          <button class="btn small danger" data-act="del" data-uuid="${f.uuid}">🗑️ Delete</button>
+          <button class="btn small" data-act="group" data-uuid="${f.uuid}" data-series="${esc(f.series || "")}" data-season="${f.season || 1}" data-episode="${f.episode || 1}">${icon("tag", 14)} Group</button>
+          <button class="btn small" data-act="rename" data-uuid="${f.uuid}" data-name="${esc(f.name || "")}">${icon("edit", 14)} Rename</button>
+          <button class="btn small danger" data-act="del" data-uuid="${f.uuid}">${icon("trash", 14)} Delete</button>
         </td>
       </tr>`).join("")}</tbody></table>`;
 
@@ -696,7 +732,7 @@ async function renderAdmin() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ file_name: name.trim() }),
           });
-          toast("Renamed ✓");
+          toast("Renamed " + icon("check", 13));
           renderAdmin();
         } catch (e) { toast(e.message); btn.disabled = false; }
       } else if (btn.dataset.act === "group") {
@@ -717,7 +753,7 @@ async function renderAdmin() {
               episode: Number(episode) || 0,
             }),
           });
-          toast("Grouping saved ✓");
+          toast("Grouping saved " + icon("check", 13));
           renderAdmin();
         } catch (e) { toast(e.message); btn.disabled = false; }
       } else {
@@ -725,7 +761,7 @@ async function renderAdmin() {
         btn.disabled = true;
         try {
           await adminApi("/api/files/" + uuid, { method: "DELETE" });
-          toast("Deleted ✓");
+          toast("Deleted " + icon("check", 13));
           renderAdmin();
         } catch (e) { toast(e.message); btn.disabled = false; }
       }
@@ -776,14 +812,14 @@ function dayLabel(ts) {
 function renderSchedule() {
   document.title = "Schedule — Ani77";
   if (LOAD_FAILED) {
-    app.innerHTML = errorBoxHTML("⚠️", "Couldn't reach the server",
+    app.innerHTML = errorBoxHTML("alert", "Couldn't reach the server",
       "The app might be waking up from sleep. Give it a few seconds and retry.", true);
     return;
   }
   if (!FILES.length) {
     app.innerHTML = `<div class="page">
-      <h1 class="page-title">📅 Schedule · Events & News</h1>
-      <div class="empty"><div class="icon">📅</div><h3>Nothing scheduled yet</h3>
+      <h1 class="page-title">${icon("calendar", 26)} Schedule · Events & News</h1>
+      <div class="empty"><div class="icon">${icon("calendar", 46)}</div><h3>Nothing scheduled yet</h3>
       <p>Add files and they'll show up here as a release timeline.</p></div>
     </div>`;
     return;
@@ -795,17 +831,17 @@ function renderSchedule() {
     (groups[lbl] = groups[lbl] || []).push(f);
   });
   app.innerHTML = `<div class="page">
-    <h1 class="page-title">📅 Schedule · Events & News</h1>
+    <h1 class="page-title">${icon("calendar", 26)} Schedule · Events & News</h1>
     <p class="page-sub">New episodes & movies, latest first</p>
     ${Object.entries(groups).map(([day, list]) => `
     <section class="row-section">
       <h2>${esc(day)} <span class="count">${list.length}</span></h2>
       <div class="ep-list">${list.map(f => `
         <a class="ep-row" href="#/watch/${f.uuid}">
-          <span class="ep-num">${f.series ? "E" + (f.episode || "?") : "🎬"}</span>
+          <span class="ep-num">${f.series ? "E" + (f.episode || "?") : icon("film", 16)}</span>
           <span class="ep-name">${esc(displayName(f))}${f.series ? ` · <b>S${f.season || 1}</b>` : ""}</span>
           <span class="ep-dur">${fmtDur(f.duration)}${codecTag(f)}</span>
-          <span class="ep-play">▶</span>
+          <span class="ep-play">${icon("play", 13)}</span>
         </a>`).join("")}</div>
     </section>`).join("")}
   </div>`;
@@ -831,30 +867,30 @@ function renderSettings() {
   const downloads = FILES.length
     ? FILES.map(f => `
       <a class="dl-row" href="/download/${f.uuid}">
-        <span class="dl-ico">⬇️</span>
+        <span class="dl-ico">${icon("download", 18)}</span>
         <span class="dl-name">${esc(f.name || f.uuid)}
           <small>${fmtSize(f.size)}${f.duration ? " · " + fmtDur(f.duration) : ""}${f.series ? " · S" + (f.season || 1) + "E" + (f.episode || "?") : ""}</small></span>
         <span class="dl-go">Download</span>
       </a>`).join("")
     : `<div class="empty" style="padding:30px"><p>No files yet — ask the admin to add some.</p></div>`;
   app.innerHTML = `<div class="page">
-    <h1 class="page-title">⬇️ Downloads & Settings</h1>
+    <h1 class="page-title">${icon("download", 26)} Downloads & Settings</h1>
 
     <section class="settings-card">
-      <h3>👤 Profile</h3>
+      <h3>${icon("user", 18)} Profile</h3>
       ${profile}
     </section>
 
     <section class="settings-card">
-      <h3>⬇️ Downloads</h3>
+      <h3>${icon("download", 18)} Downloads</h3>
       <p class="page-sub" style="margin-bottom:10px;">Tap a file to download it to your device (watch in MX Player / VLC).</p>
       ${downloads}
     </section>
 
     <section class="settings-card">
-      <h3>⚙️ More</h3>
-      <a class="drawer-item" href="#/admin">🛡️ Admin panel</a>
-      <button class="drawer-item" id="sAdd">＋ Add a file by file_id</button>
+      <h3>${icon("sliders", 18)} More</h3>
+      <a class="drawer-item" href="#/admin">${icon("shield", 17)} Admin panel</a>
+      <button class="drawer-item" id="sAdd">${icon("plus", 17)} Add a file by file_id</button>
     </section>
   </div>`;
   const l2 = $("#logoutBtn2");
@@ -1020,8 +1056,8 @@ async function submitAuth() {
     closeAuthModal();
     $("#authPass").value = "";
     toast(authTab === "login"
-      ? "Welcome back, " + j.user.name + "!"
-      : "Profile created — welcome " + j.user.name + " 🎉");
+      ? "Welcome back, " + esc(j.user.name) + "!"
+      : "Profile created — welcome " + esc(j.user.name) + " " + icon("check", 13));
     await loadFiles();
     renderNavUser();
     route();
@@ -1107,7 +1143,7 @@ async function boot() {
       });
       closeModal();
       ["#fidInput", "#nameInput", "#sizeInput", "#mimeInput"].forEach(s => $(s).value = "");
-      toast("Added ✓");
+      toast("Added " + icon("check", 13));
       await loadFiles();
       location.hash = "#/watch/" + j.uuid;
       route();
