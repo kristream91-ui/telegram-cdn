@@ -8,6 +8,9 @@ const app = $("#app");
 let FILES = [];
 let SERIES = [];   // series content details (/api/series)
 let LOAD_FAILED = false;
+let USER = null;       // {id, name, tok, exp} when logged in
+let PROGRESS = {};     // logged-in user's watch positions (server-synced)
+const USER_KEY = "userTok";
 
 /* -------------------------------------------------------------- */
 /*  helpers                                                        */
@@ -46,15 +49,21 @@ function toast(msg) {
   t._h = setTimeout(() => t.classList.add("hidden"), 3000);
 }
 
-/* continue-watching bookmarks: cw:<uuid> -> {pos, dur} */
+/* continue watching — saved per logged-in profile on the server, so it
+   follows the user across devices (guests just watch without progress) */
 function savePos(uuid, player) {
-  if (!player || !player.duration || !player.currentTime) return;
-  localStorage.setItem(`cw:${uuid}`, JSON.stringify({
-    pos: player.currentTime, dur: player.duration, ts: Date.now()
-  }));
+  if (!USER || !player || !player.duration || !player.currentTime) return;
+  const pos = player.currentTime, dur = player.duration;
+  PROGRESS[uuid] = { pos, dur };
+  fetch("/api/progress/" + uuid, {
+    method: "POST",
+    headers: { "Content-Type": "application/json",
+               "Authorization": "Bearer " + USER.tok },
+    body: JSON.stringify({ pos, dur }),
+  }).catch(() => { /* offline — kept in memory for this session */ });
 }
 function getPos(uuid) {
-  try { return JSON.parse(localStorage.getItem(`cw:${uuid}`)); } catch { return null; }
+  return (USER && PROGRESS[uuid]) || null;
 }
 function started(uuid) {
   const p = getPos(uuid);
@@ -750,6 +759,134 @@ async function loadFiles() {
   }
   try { SERIES = (await api("/api/series")) || []; }
   catch { SERIES = []; }
+  await loadProgress();
+}
+
+async function loadProgress() {
+  if (!USER) { PROGRESS = {}; return; }
+  try {
+    PROGRESS = (await api("/api/progress", {
+      headers: { "Authorization": "Bearer " + USER.tok },
+    })) || {};
+  } catch (e) {
+    PROGRESS = {};
+    // token expired (e.g. after a server redeploy) -> quietly log out
+    if (String(e.message).includes("Not logged in")) doLogout(true);
+  }
+}
+
+/* -------------------------------------------------------------- */
+/*  user profiles (sign up / log in / log out)                     */
+/* -------------------------------------------------------------- */
+
+function userFromStorage() {
+  try {
+    const t = JSON.parse(localStorage.getItem(USER_KEY));
+    if (t && t.tok && t.exp && t.exp > Date.now() / 1000 + 60) return t;
+  } catch { /* corrupt entry */ }
+  localStorage.removeItem(USER_KEY);
+  return null;
+}
+
+function doLogout(silent) {
+  localStorage.removeItem(USER_KEY);
+  USER = null;
+  PROGRESS = {};
+  renderNavUser();
+  if (!silent) toast("Logged out");
+}
+
+function renderNavUser() {
+  const el = $("#navUser");
+  if (!el) return;
+  if (USER) {
+    const letter = (USER.name || "?").charAt(0).toUpperCase();
+    el.innerHTML = `
+      <div class="user-wrap">
+        <button class="user-chip" id="userChip" title="${esc(USER.name)}">
+          <span class="avatar">${esc(letter)}</span>
+        </button>
+        <div class="user-menu hidden" id="userMenu">
+          <div class="um-name">👤 ${esc(USER.name)}</div>
+          <button class="btn ghost" id="logoutBtn" style="width:100%">Log Out</button>
+        </div>
+      </div>`;
+    $("#userChip").addEventListener("click", e => {
+      e.stopPropagation();
+      $("#userMenu").classList.toggle("hidden");
+    });
+    $("#logoutBtn").addEventListener("click", () => {
+      doLogout();
+      route();
+    });
+  } else {
+    el.innerHTML = `<button class="btn ghost" id="authBtn" title="Log in or create a profile">👤 Log In</button>`;
+    $("#authBtn").addEventListener("click", () => openAuthModal("login"));
+  }
+}
+
+let authTab = "login";
+
+function openAuthModal(tab) {
+  authTab = tab || "login";
+  $("#authModal").classList.remove("hidden");
+  authShowStatus("");
+  renderAuthTabs();
+  $("#authUser").focus();
+}
+function closeAuthModal() {
+  $("#authModal").classList.add("hidden");
+}
+
+function renderAuthTabs() {
+  document.querySelectorAll(".auth-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.tab === authTab));
+  $("#authGo").textContent = authTab === "login" ? "Log In" : "Sign Up";
+  $("#authPass").setAttribute("autocomplete",
+    authTab === "login" ? "current-password" : "new-password");
+}
+
+function authShowStatus(msg, isError) {
+  const s = $("#authStatus");
+  s.textContent = msg;
+  s.className = "add-status" + (isError ? " error" : "");
+  if (!msg) s.classList.add("hidden");
+}
+
+async function submitAuth() {
+  const btn = $("#authGo");
+  const username = $("#authUser").value.trim();
+  const password = $("#authPass").value;
+  if (!username || !password) {
+    authShowStatus("Enter both username and password", true);
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Please wait…";
+  try {
+    const j = await api("/api/auth/" + (authTab === "login" ? "login" : "signup"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    localStorage.setItem(USER_KEY, JSON.stringify({
+      tok: j.token, exp: j.expires_at, id: j.user.id, name: j.user.name,
+    }));
+    USER = userFromStorage();
+    closeAuthModal();
+    $("#authPass").value = "";
+    toast(authTab === "login"
+      ? "Welcome back, " + j.user.name + "!"
+      : "Profile created — welcome " + j.user.name + " 🎉");
+    await loadFiles();
+    renderNavUser();
+    route();
+  } catch (e) {
+    authShowStatus(e.message, true);
+  } finally {
+    btn.disabled = false;
+    renderAuthTabs();
+  }
 }
 
 async function refresh() {
@@ -772,7 +909,34 @@ async function boot() {
   $("#addBtn").addEventListener("click", openModal);
   $("#cancelAdd").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") { closeModal(); closeAuthModal(); }
+  });
+
+  /* profiles */
+  USER = userFromStorage();
+  renderNavUser();
+  document.addEventListener("click", e => {
+    const m = $("#userMenu");
+    if (m && !e.target.closest(".user-wrap")) m.classList.add("hidden");
+  });
+  $("#authCancel").addEventListener("click", closeAuthModal);
+  $("#authModal").addEventListener("click", e => {
+    if (e.target.id === "authModal") closeAuthModal();
+  });
+  document.querySelectorAll(".auth-tab").forEach(t =>
+    t.addEventListener("click", () => {
+      authTab = t.dataset.tab;
+      renderAuthTabs();
+      authShowStatus("");
+    }));
+  $("#authGo").addEventListener("click", submitAuth);
+  $("#authUser").addEventListener("keydown", e => {
+    if (e.key === "Enter") $("#authPass").focus();
+  });
+  $("#authPass").addEventListener("keydown", e => {
+    if (e.key === "Enter") submitAuth();
+  });
 
   $("#confirmAdd").addEventListener("click", async () => {
     const btn = $("#confirmAdd");
