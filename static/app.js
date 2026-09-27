@@ -536,6 +536,363 @@ function adminApi(path, opts) {
   return api(path, Object.assign({}, opts, { headers: headers }));
 }
 
+let ADMIN_TAB = "content";
+let ADMIN_SERIES = [];
+let ADMIN_FILES = [];
+
+/* styled modal helpers (admin) */
+function aModal(html) {
+  const root = $("#adminModalRoot");
+  if (!root) return;
+  root.innerHTML = `<div class="modal" id="aModal"><div class="modal-box admin-modal">${html}</div></div>`;
+  $("#aModal").addEventListener("click", e => {
+    if (e.target.id === "aModal") aModalClose();
+  });
+}
+function aModalClose() {
+  const root = $("#adminModalRoot");
+  if (root) root.innerHTML = "";
+}
+
+async function adminLoadData() {
+  try { ADMIN_SERIES = (await api("/api/series")) || []; } catch { ADMIN_SERIES = []; }
+  try { ADMIN_FILES = (await api("/api/files")) || []; } catch { ADMIN_FILES = []; }
+  SERIES = ADMIN_SERIES;
+}
+
+/* ---------------- content tab (series cards) ---------------- */
+
+function adminContentHTML() {
+  if (!ADMIN_SERIES.length) {
+    return `<div class="empty"><div class="icon">${icon("tv", 46)}</div><h3>No series yet</h3>
+      <p>Files with SxxExx in the name (e.g. Tensura S4E1.mp4) are grouped automatically.
+      You can also group them manually from the Files tab.</p></div>`;
+  }
+  return `<div class="admin-cards">${ADMIN_SERIES.map((s, i) => `
+    <div class="acard" style="animation-delay:${Math.min(i * 0.05, 0.4)}s">
+      <div class="acard-img">
+        ${s.has_poster
+          ? `<img src="/poster/${encodeURIComponent(s.name)}" loading="lazy" onerror="this.remove()">`
+          : `<span class="acard-ph">${icon("tv", 40)}</span>`}
+        <span class="acard-eps">${s.episodes} EP</span>
+      </div>
+      <div class="acard-body">
+        <b>${esc(s.name)}</b>
+        <div class="acard-meta">${esc(s.year || "—")} · ${esc(s.genre || "No genre")}</div>
+        <p>${esc(s.description
+          ? s.description.slice(0, 110) + (s.description.length > 110 ? "…" : "")
+          : "No description yet — add one!")}</p>
+        <button class="btn small primary" data-edit="${esc(s.name)}">${icon("edit", 13)} Edit details</button>
+      </div>
+    </div>`).join("")}</div>`;
+}
+
+/* ---------------- files tab (file rows) ---------------- */
+
+function adminFilesHTML() {
+  if (!ADMIN_FILES.length) {
+    return `<div class="empty"><div class="icon">${icon("film", 46)}</div><h3>No files yet</h3>
+      <p>Use the <b>Add file</b> tab above, or send files to the bot.</p></div>`;
+  }
+  const rows = [...ADMIN_FILES].sort((a, b) => b.created_at - a.created_at).map((f, i) => {
+    const isTS = (f.mime || "").toLowerCase().includes("mp2t");
+    return `
+    <div class="afile" style="animation-delay:${Math.min(i * 0.04, 0.3)}s">
+      <div class="afile-thumb">
+        ${f.has_thumb
+          ? `<img src="/thumb/${f.uuid}" loading="lazy" onerror="this.remove()">`
+          : `<span>${icon("film", 20)}</span>`}
+      </div>
+      <div class="afile-info">
+        <b title="${esc(f.name || f.uuid)}">${esc(f.name || f.uuid)}</b>
+        <span class="afile-meta">
+          ${f.series
+            ? `<span class="pill blue">S${f.season || 1} · E${f.episode || "?"}</span>`
+            : `<span class="pill">movie</span>`}
+          ${isTS ? `<span class="pill gold">TS</span>` : ""}
+          <span>${fmtSize(f.size)}</span>
+          ${f.duration ? `<span>· ${fmtDur(f.duration)}</span>` : ""}
+          ${f.codecs ? `<span>· ${esc(f.codecs)}</span>` : ""}
+        </span>
+      </div>
+      <div class="afile-ops">
+        <a class="ibtn" href="#/watch/${f.uuid}" title="Watch">${icon("play", 14)}</a>
+        <button class="ibtn" data-group="${f.uuid}" data-series="${esc(f.series || "")}"
+          data-season="${f.season || 1}" data-episode="${f.episode || 1}"
+          data-name="${esc(f.name || "")}" title="Group into series">${icon("tag", 14)}</button>
+        <button class="ibtn" data-rename="${f.uuid}" data-name="${esc(f.name || "")}"
+          title="Rename">${icon("edit", 14)}</button>
+        <button class="ibtn danger" data-del="${f.uuid}" data-name="${esc(f.name || "")}"
+          title="Delete">${icon("trash", 14)}</button>
+      </div>
+    </div>`;
+  }).join("");
+  const opts = [...new Set(ADMIN_SERIES.map(s => s.name))]
+    .map(n => `<option value="${esc(n)}">`).join("");
+  return `<datalist id="agList">${opts}</datalist><div class="afile-list">${rows}</div>`;
+}
+
+/* ---------------- add tab ---------------- */
+
+function adminAddHTML() {
+  return `<div class="admin-add">
+    <h3>${icon("plus", 18)} Add a file</h3>
+    <p class="page-sub" style="margin-bottom:4px;">Paste a Telegram <b>file_id</b> — size, format and codecs are auto-detected.
+    Use the <b>SxxExx pattern</b> in the name so episodes group automatically.</p>
+    <label>file_id <span class="req">*</span></label>
+    <input id="aaFid" placeholder="BQACAgUAAxkB..." spellcheck="false">
+    <label>Name (with extension)</label>
+    <input id="aaName" placeholder="Tensura S4E1 Hindi Dub.mp4">
+    <div class="admin-add-row">
+      <div><label>Size in bytes (optional)</label>
+        <input id="aaSize" type="number" min="0" placeholder="224000000"></div>
+      <div><label>Mime type (optional)</label>
+        <input id="aaMime" placeholder="video/mp4"></div>
+    </div>
+    <div id="aaStatus" class="add-status hidden"></div>
+    <button class="btn primary" id="aaGo" style="margin-top:16px;">${icon("plus", 15)} Detect & Add</button>
+  </div>`;
+}
+
+function wireAdminAdd() {
+  const go = $("#aaGo");
+  go.addEventListener("click", async () => {
+    const fid = $("#aaFid").value.trim();
+    const st = $("#aaStatus");
+    if (!fid) {
+      st.textContent = "file_id is required — paste the Telegram file_id first.";
+      st.className = "add-status error";
+      return;
+    }
+    go.disabled = true;
+    go.textContent = "Detecting…";
+    try {
+      await api("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_id: fid,
+          file_name: $("#aaName").value.trim(),
+          file_size: Number($("#aaSize").value) || 0,
+          mime_type: $("#aaMime").value.trim(),
+        }),
+      });
+      toast("Added " + icon("check", 13));
+      await loadFiles();
+      await adminLoadData();
+      ADMIN_TAB = "files";
+      document.querySelectorAll(".admin-tab").forEach(x =>
+        x.classList.toggle("active", x.dataset.atab === "files"));
+      renderAdminTab();
+    } catch (e) {
+      st.textContent = e.message;
+      st.className = "add-status error";
+    } finally {
+      go.disabled = false;
+      go.innerHTML = `${icon("plus", 15)} Detect & Add`;
+    }
+  });
+}
+
+/* ---------------- admin modals ---------------- */
+
+function openSeriesEdit(name) {
+  const s = ADMIN_SERIES.find(x => x.name === name) ||
+    { name, description: "", year: "", genre: "", has_poster: false };
+  aModal(`
+    <h2>${icon("edit", 20)} ${esc(name)}</h2>
+    <div class="ae-poster">
+      ${s.has_poster
+        ? `<img src="/poster/${encodeURIComponent(name)}" onerror="this.remove()">`
+        : `<span class="ae-ph">${icon("tv", 40)}</span>`}
+    </div>
+    <label>Poster image (JPG / PNG / WEBP · 2 MB max)</label>
+    <input id="aeFile" type="file" accept="image/*" style="padding:6px;">
+    ${s.has_poster
+      ? `<button class="btn small danger" id="aeDelPoster" style="margin-top:8px;">${icon("trash", 13)} Remove poster</button>`
+      : `<p class="hint" style="margin-top:6px;">No poster yet — episode thumbnail (if any) is used instead.</p>`}
+    <div class="ae-grid">
+      <div><label>Release year</label><input id="aeYear" value="${esc(s.year || "")}" placeholder="2025"></div>
+      <div><label>Genre</label><input id="aeGenre" value="${esc(s.genre || "")}" placeholder="Action, Fantasy, Isekai"></div>
+    </div>
+    <label>Description</label>
+    <textarea id="aeDesc" rows="4" placeholder="Anime story / description...">${esc(s.description || "")}</textarea>
+    <div class="modal-actions">
+      <button class="btn ghost" id="aeCancel">Cancel</button>
+      <button class="btn primary" id="aeSave">Save details</button>
+    </div>`);
+  $("#aeCancel").addEventListener("click", aModalClose);
+  $("#aeFile").addEventListener("change", () => {
+    const f = $("#aeFile").files[0];
+    if (!f || !f.type.startsWith("image/")) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      const box = $(".ae-poster");
+      box.innerHTML = `<img src="${rd.result}">`;
+    };
+    rd.readAsDataURL(f);
+  });
+  const dp = $("#aeDelPoster");
+  if (dp) dp.addEventListener("click", async () => {
+    dp.disabled = true;
+    try {
+      await adminApi(`/api/series/${encodeURIComponent(name)}/poster`, { method: "DELETE" });
+      toast("Poster removed " + icon("check", 13));
+      aModalClose();
+      await loadFiles();
+      await adminLoadData();
+      renderAdminTab();
+    } catch (e) { toast(e.message); dp.disabled = false; }
+  });
+  $("#aeSave").addEventListener("click", async () => {
+    const btn = $("#aeSave");
+    const posterFile = $("#aeFile").files[0];
+    try {
+      if (posterFile) {
+        btn.disabled = true; btn.textContent = "Uploading…";
+        const fd = new FormData();
+        fd.append("poster", posterFile);
+        await adminApi(`/api/series/${encodeURIComponent(name)}/poster`,
+          { method: "POST", body: fd });
+        btn.textContent = "Saving…";
+      }
+      await adminApi(`/api/series/${encodeURIComponent(name)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          year: $("#aeYear").value.trim(),
+          genre: $("#aeGenre").value.trim(),
+          description: $("#aeDesc").value.trim(),
+        }),
+      });
+      toast("Details saved " + icon("check", 13));
+      aModalClose();
+      await loadFiles();
+      await adminLoadData();
+      renderAdminTab();
+    } catch (e) {
+      toast(e.message);
+      btn.disabled = false;
+      btn.textContent = "Save details";
+    }
+  });
+}
+
+function openRenameModal(uuid, oldName) {
+  aModal(`
+    <h2>${icon("edit", 20)} Rename file</h2>
+    <label>New name (with extension)</label>
+    <input id="arName" value="${esc(oldName)}" placeholder="Movie.mp4" spellcheck="false">
+    <p class="hint">Tip: the SxxExx pattern (e.g. Tensura S4E3.mp4) auto-groups episodes into series.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="arCancel">Cancel</button>
+      <button class="btn primary" id="arSave">Rename</button>
+    </div>`);
+  $("#arCancel").addEventListener("click", aModalClose);
+  $("#arName").focus();
+  $("#arName").addEventListener("keydown", e => { if (e.key === "Enter") $("#arSave").click(); });
+  $("#arSave").addEventListener("click", async () => {
+    const name = $("#arName").value.trim();
+    if (!name) return;
+    const btn = $("#arSave");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      await adminApi(`/api/files/${uuid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_name: name }),
+      });
+      toast("Renamed " + icon("check", 13));
+      aModalClose();
+      await loadFiles();
+      await adminLoadData();
+      renderAdminTab();
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Rename"; }
+  });
+}
+
+function openGroupModal(uuid, series, season, episode) {
+  aModal(`
+    <h2>${icon("tag", 20)} Group into a series</h2>
+    <label>Series name (empty = standalone movie)</label>
+    <input id="agSeries" list="agList" value="${esc(series || "")}" placeholder="Tensura" spellcheck="false">
+    <p class="hint">Existing series are suggested as you type.</p>
+    <div class="ae-grid">
+      <div><label>Season</label><input id="agSeason" type="number" min="0" value="${season || 1}"></div>
+      <div><label>Episode</label><input id="agEpisode" type="number" min="0" value="${episode || 1}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="agCancel">Cancel</button>
+      <button class="btn primary" id="agSave">Save grouping</button>
+    </div>`);
+  $("#agCancel").addEventListener("click", aModalClose);
+  $("#agSeries").focus();
+  $("#agSave").addEventListener("click", async () => {
+    const btn = $("#agSave");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      await adminApi(`/api/files/${uuid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          series: $("#agSeries").value.trim(),
+          season: Number($("#agSeason").value) || 0,
+          episode: Number($("#agEpisode").value) || 0,
+        }),
+      });
+      toast("Grouping saved " + icon("check", 13));
+      aModalClose();
+      await loadFiles();
+      await adminLoadData();
+      renderAdminTab();
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Save grouping"; }
+  });
+}
+
+function openDeleteModal(uuid, name) {
+  aModal(`
+    <h2 style="color:var(--red)">${icon("trash", 20)} Delete file?</h2>
+    <p class="hint"><b>${esc(name || uuid)}</b> will be removed from the library.
+    The original Telegram file is not deleted — you can add it again anytime.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="adCancel">Cancel</button>
+      <button class="btn danger" id="adGo">${icon("trash", 14)} Delete</button>
+    </div>`);
+  $("#adCancel").addEventListener("click", aModalClose);
+  $("#adGo").addEventListener("click", async () => {
+    const btn = $("#adGo");
+    btn.disabled = true; btn.textContent = "Deleting…";
+    try {
+      await adminApi(`/api/files/${uuid}`, { method: "DELETE" });
+      toast("Deleted " + icon("check", 13));
+      aModalClose();
+      await loadFiles();
+      await adminLoadData();
+      renderAdminTab();
+    } catch (e) { toast(e.message); btn.disabled = false; btn.innerHTML = `${icon("trash", 14)} Delete`; }
+  });
+}
+
+/* ---------------- admin shell ---------------- */
+
+function renderAdminTab() {
+  const body = $("#adminBody");
+  if (!body) return;
+  if (ADMIN_TAB === "files") body.innerHTML = adminFilesHTML();
+  else if (ADMIN_TAB === "add") { body.innerHTML = adminAddHTML(); wireAdminAdd(); }
+  else body.innerHTML = adminContentHTML();
+
+  body.querySelectorAll("[data-edit]").forEach(b =>
+    b.addEventListener("click", () => openSeriesEdit(b.dataset.edit)));
+  body.querySelectorAll("[data-group]").forEach(b =>
+    b.addEventListener("click", () =>
+      openGroupModal(b.dataset.group, b.dataset.series, +b.dataset.season, +b.dataset.episode)));
+  body.querySelectorAll("[data-rename]").forEach(b =>
+    b.addEventListener("click", () => openRenameModal(b.dataset.rename, b.dataset.name)));
+  body.querySelectorAll("[data-del]").forEach(b =>
+    b.addEventListener("click", () => openDeleteModal(b.dataset.del, b.dataset.name)));
+}
+
 async function renderAdmin() {
   document.title = "Admin — Ani77";
   const tok = adminTok();
@@ -585,19 +942,22 @@ async function renderAdmin() {
 
   app.innerHTML = `
   <div class="admin-page">
-    <a href="#/" class="btn ghost back-btn">${icon("arrowL", 15)} Back to site</a>
-    <h1 class="admin-title">${icon("shield", 30)} Admin Panel</h1>
+    <div class="admin-top">
+      <h1 class="admin-title">${icon("shield", 30)} Admin Panel</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a class="btn ghost" href="#/">${icon("arrowL", 14)} Site</a>
+        <button id="adminLogout" class="btn danger">${icon("logout", 14)} Logout</button>
+      </div>
+    </div>
     <div id="adminStats" class="stat-grid"></div>
-    <div class="watch-head" style="margin-top:10px;">
-      <h2 style="margin:0;">${icon("tv", 20)} Content Details <span class="count" id="sCount"></span></h2>
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-atab="content">${icon("tv", 15)} Content</button>
+      <button class="admin-tab" data-atab="files">${icon("film", 15)} Files</button>
+      <button class="admin-tab" data-atab="add">${icon("plus", 15)} Add file</button>
     </div>
-    <div id="adminSeries"></div>
-    <div class="watch-head" style="margin-top:26px;">
-      <h2 style="margin:0;">Files <span class="count" id="aCount"></span></h2>
-      <button id="adminLogout" class="btn ghost">Logout</button>
-    </div>
-    <div id="adminList"></div>
-  </div>`;
+    <div id="adminBody"></div>
+  </div>
+  <div id="adminModalRoot"></div>`;
 
   $("#adminLogout").addEventListener("click", () => {
     localStorage.removeItem(ADMIN_KEY);
@@ -605,6 +965,14 @@ async function renderAdmin() {
     location.hash = "#/";
     route();
   });
+
+  document.querySelectorAll(".admin-tab").forEach(t =>
+    t.addEventListener("click", () => {
+      ADMIN_TAB = t.dataset.atab;
+      document.querySelectorAll(".admin-tab").forEach(x =>
+        x.classList.toggle("active", x === t));
+      renderAdminTab();
+    }));
 
   try {
     const s = await adminApi("/api/admin/stats");
@@ -620,153 +988,8 @@ async function renderAdmin() {
     return;
   }
 
-  let seriesList = [];
-  try { seriesList = (await api("/api/series")) || []; } catch { /* ok */ }
-  SERIES = seriesList;
-  $("#sCount").textContent = seriesList.length;
-  $("#adminSeries").innerHTML = seriesList.length ? `<table class="admin-table">
-    <thead><tr><th>Series</th><th>Year</th><th>Genre</th><th>Description</th><th></th></tr></thead>
-    <tbody>${seriesList.map(s => `
-      <tr>
-        <td class="name">${s.has_poster ? `<img src="/poster/${encodeURIComponent(s.name)}" loading="lazy" style="height:34px;border-radius:6px;margin-right:10px;vertical-align:middle;object-fit:cover;" onerror="this.remove()">` : ""}<b>${esc(s.name)}</b><div style="font-size:11px;color:var(--muted);">${s.episodes} eps · ${s.seasons.length || 1} season${(s.seasons.length || 1) > 1 ? "s" : ""}</div></td>
-        <td>${esc(s.year || "—")}</td>
-        <td>${esc(s.genre || "—")}</td>
-        <td style="font-weight:400;">${esc(s.description ? s.description.slice(0, 60) + (s.description.length > 60 ? "…" : "") : "—")}</td>
-        <td class="ops"><button class="btn small" data-meta="${esc(s.name)}">${icon("edit", 14)} Edit</button></td>
-      </tr>`).join("")}</tbody></table>`
-    : `<div class="empty" style="padding:16px"><p>No series yet — files with SxxExx in the name (e.g. Tensura S4E1.mp4) are grouped automatically.</p></div>`;
-
-  document.querySelectorAll("[data-meta]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const name = btn.dataset.meta;
-      const s = seriesList.find(x => x.name === name) || { name, description: "", year: "", genre: "" };
-      const tr = btn.closest("tr");
-      tr.innerHTML = `<td colspan="5">
-        <div class="meta-edit">
-          <div class="mrow"><label>Release year</label><input id="mYear" value="${esc(s.year || "")}" placeholder="2025"></div>
-          <div class="mrow"><label>Genre</label><input id="mGenre" value="${esc(s.genre || "")}" placeholder="Action, Fantasy, Isekai"></div>
-          <div class="mrow"><label>Description</label><textarea id="mDesc" rows="3" placeholder="Anime story / description...">${esc(s.description || "")}</textarea></div>
-          <div class="mrow"><label>Poster image (JPG / PNG / WEBP, 2 MB max)</label>
-            <input id="mPoster" type="file" accept="image/*" style="padding:6px;">
-            ${s.has_poster ? `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-              <img src="/poster/${encodeURIComponent(name)}" style="height:64px;border-radius:8px;" onerror="this.remove()">
-              <button class="btn small danger" id="mPosterDel">${icon("trash", 14)} Remove poster</button></div>`
-            : `<div style="font-size:11.5px;color:var(--muted);margin-top:6px;">No poster yet — episode thumbnail (if any) is used instead.</div>`}
-          </div>
-          <div class="modal-actions">
-            <button class="btn ghost" id="mCancel">Cancel</button>
-            <button class="btn primary" id="mSave">Save details</button>
-          </div>
-        </div></td>`;
-      $("#mCancel").addEventListener("click", () => renderAdmin());
-      const pdel = $("#mPosterDel");
-      if (pdel) pdel.addEventListener("click", async () => {
-        try {
-          await adminApi("/api/series/" + encodeURIComponent(name) + "/poster", { method: "DELETE" });
-          toast("Poster removed " + icon("check", 13));
-          renderAdmin();
-        } catch (e) { toast(e.message); }
-      });
-      $("#mSave").addEventListener("click", async () => {
-        const btn2 = $("#mSave");
-        const posterFile = $("#mPoster").files[0];
-        try {
-          if (posterFile) {
-            btn2.disabled = true; btn2.textContent = "Uploading…";
-            const fd = new FormData();
-            fd.append("poster", posterFile);
-            await adminApi("/api/series/" + encodeURIComponent(name) + "/poster",
-              { method: "POST", body: fd });
-            btn2.textContent = "Saving…";
-          }
-          await adminApi("/api/series/" + encodeURIComponent(name), {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              year: $("#mYear").value.trim(),
-              genre: $("#mGenre").value.trim(),
-              description: $("#mDesc").value.trim(),
-            }),
-          });
-          toast("Details saved " + icon("check", 13));
-          await loadFiles();
-          renderAdmin();
-        } catch (e) { toast(e.message); btn2.disabled = false; btn2.textContent = "Save details"; }
-      });
-    });
-  });
-
-  let files = [];
-  try { files = (await api("/api/files")) || []; } catch { /* keep empty */ }
-  $("#aCount").textContent = files.length;
-  if (!files.length) {
-    $("#adminList").innerHTML = `<div class="empty" style="padding:30px"><div class="icon">${icon("film", 46)}</div><h3>No files yet</h3>
-      <p>Add files with the + Add button or by sending them to the bot.</p></div>`;
-    return;
-  }
-  $("#adminList").innerHTML = `<table class="admin-table">
-    <thead><tr><th>Name</th><th>Group</th><th>Size</th><th>Format</th><th></th></tr></thead>
-    <tbody>${files.map(f => `
-      <tr>
-        <td class="name">${esc(f.name || f.uuid)}</td>
-        <td>${f.series ? `S${f.season || 1} · E${f.episode || "?"}` : "—"}</td>
-        <td>${fmtSize(f.size)}</td>
-        <td>${esc(f.mime || "—")}</td>
-        <td class="ops">
-          <button class="btn small" data-act="group" data-uuid="${f.uuid}" data-series="${esc(f.series || "")}" data-season="${f.season || 1}" data-episode="${f.episode || 1}">${icon("tag", 14)} Group</button>
-          <button class="btn small" data-act="rename" data-uuid="${f.uuid}" data-name="${esc(f.name || "")}">${icon("edit", 14)} Rename</button>
-          <button class="btn small danger" data-act="del" data-uuid="${f.uuid}">${icon("trash", 14)} Delete</button>
-        </td>
-      </tr>`).join("")}</tbody></table>`;
-
-  document.querySelectorAll(".admin-table [data-act]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const uuid = btn.dataset.uuid;
-      if (btn.dataset.act === "rename") {
-        const name = prompt("New name (with extension, e.g. Movie.mp4):", btn.dataset.name || "");
-        if (!name || !name.trim() || name.trim() === btn.dataset.name) return;
-        btn.disabled = true;
-        try {
-          await adminApi("/api/files/" + uuid, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ file_name: name.trim() }),
-          });
-          toast("Renamed " + icon("check", 13));
-          renderAdmin();
-        } catch (e) { toast(e.message); btn.disabled = false; }
-      } else if (btn.dataset.act === "group") {
-        const series = prompt("Series name (empty = standalone movie):", btn.dataset.series || "");
-        if (series === null) return;
-        const season = prompt("Season number:", btn.dataset.season || "1");
-        if (season === null) return;
-        const episode = prompt("Episode number:", btn.dataset.episode || "1");
-        if (episode === null) return;
-        btn.disabled = true;
-        try {
-          await adminApi("/api/files/" + uuid, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              series: series.trim(),
-              season: Number(season) || 0,
-              episode: Number(episode) || 0,
-            }),
-          });
-          toast("Grouping saved " + icon("check", 13));
-          renderAdmin();
-        } catch (e) { toast(e.message); btn.disabled = false; }
-      } else {
-        if (!confirm("Delete this file from the library?")) return;
-        btn.disabled = true;
-        try {
-          await adminApi("/api/files/" + uuid, { method: "DELETE" });
-          toast("Deleted " + icon("check", 13));
-          renderAdmin();
-        } catch (e) { toast(e.message); btn.disabled = false; }
-      }
-    });
-  });
+  await adminLoadData();
+  renderAdminTab();
 }
 
 /* -------------------------------------------------------------- */
@@ -1121,7 +1344,7 @@ async function boot() {
   $("#cancelAdd").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape") { closeModal(); closeAuthModal(); closeDrawer(); }
+    if (e.key === "Escape") { closeModal(); closeAuthModal(); closeDrawer(); aModalClose(); }
   });
 
   $("#confirmAdd").addEventListener("click", async () => {
