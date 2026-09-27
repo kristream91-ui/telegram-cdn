@@ -473,12 +473,43 @@ input { font-family: inherit; }
 /* ---------------- responsive ---------------- */
 
 @media (max-width: 720px) {
-  .brand img { height: 40px; }
-  .nav-search { max-width: none; }
-  .hero { min-height: 58vh; padding-bottom: 40px; }
-  .card { flex-basis: 164px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  /* navbar becomes two rows: brand + actions, then full-width search */
+  #nav {
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    padding: 10px 3.5vw 8px;
+    background: rgba(5, 10, 20, .97);
+  }
+  #nav.scrolled { padding: 8px 3.5vw; }
+  .brand img { height: 38px; }
+  .nav-search { order: 10; flex-basis: 100%; max-width: none; padding: 7px 14px; }
+  .nav-actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn { padding: 8px 12px; font-size: 12.5px; }
+
+  /* hero */
+  .hero { min-height: 54vh; padding-bottom: 36px; }
+  .hero h1 { font-size: clamp(28px, 8.5vw, 42px); }
+  .hero p.desc { font-size: 13px; -webkit-line-clamp: 4; }
+  .hero .meta { font-size: 12px; }
+  .hero .cta { gap: 10px; }
+  .hero .cta .btn { padding: 10px 14px; font-size: 12.5px; }
+  .hero.brand-hero .brand-logo-lg { width: 124px; }
+
+  .card { flex-basis: 158px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .row-scroll { padding: 6px 3.5vw 16px; gap: 10px; }
+  .row-section h2 { padding: 0 3.5vw 10px; }
+  .row-section { margin: 20px 0 4px; }
+
+  .watch-page { padding: 148px 3.5vw 30px; }
   .watch-head .actions { width: 100%; }
+  .watch-head h1 { font-size: clamp(24px, 7vw, 32px); }
+
+  .series-hero .s-info { padding: 54px 16px 18px; }
+
+  .admin-page { padding: 148px 3.5vw 50px; }
+  .empty { padding: 50px 16px; }
+  .modal-box { padding: 20px; }
 }
 
 /* ---------------- admin panel ---------------- */
