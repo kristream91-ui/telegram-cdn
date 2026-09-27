@@ -17,19 +17,42 @@
     <a class="brand" href="#/" title="Ani77 — Home">
       <img src="/static/logo.webp" alt="Ani77">
     </a>
-    <div class="nav-search">
+    <div class="nav-actions">
+      <button id="searchToggleBtn" class="nav-icon-btn" title="Search" aria-label="Search">🔍</button>
+      <button id="hamburgerBtn" class="nav-icon-btn" title="Menu" aria-label="Menu">☰</button>
+    </div>
+    <div class="nav-search hidden" id="navSearchWrap">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>
       </svg>
       <input id="search" type="search" placeholder="Search anime, movies..." autocomplete="off">
     </div>
-    <div class="nav-actions">
-      <div id="navUser" class="nav-user"></div>
-      <button id="addBtn" class="btn ghost" title="Add a file by Telegram file_id">
-        <span class="plus">+</span> Add
-      </button>
-      <a class="btn ghost" href="#/admin" title="Admin panel">🛡️</a>
-    </div>
+  </nav>
+
+  <!-- hamburger drawer -->
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+    <aside class="drawer-panel" role="menu" aria-label="Menu">
+      <div class="drawer-head">
+        <span class="drawer-brand">Ani77</span>
+        <button class="nav-icon-btn" id="drawerClose" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div id="drawerUser"></div>
+      <div class="drawer-sep"></div>
+      <a class="drawer-item" href="#/" data-close>🏠 Home</a>
+      <a class="drawer-item" href="#/schedule" data-close>📅 Schedule · Events & News</a>
+      <a class="drawer-item" href="#/settings" data-close>⬇️ Downloads & Settings</a>
+      <div class="drawer-sep"></div>
+      <button class="drawer-item" id="drawerAdd">＋ Add a file</button>
+      <a class="drawer-item" href="#/admin" data-close>🛡️ Admin panel</a>
+    </aside>
+  </div>
+
+  <!-- bottom tab bar (mobile) -->
+  <nav id="tabbar" aria-label="Main">
+    <a href="#/" class="tab" data-tab="home"><span class="t-ico">🏠</span><span class="t-lbl">Home</span></a>
+    <a href="#/schedule" class="tab" data-tab="schedule"><span class="t-ico">📅</span><span class="t-lbl">Schedule</span></a>
+    <a href="#/settings" class="tab" data-tab="settings"><span class="t-ico">⚙️</span><span class="t-lbl">More</span></a>
   </nav>
 
   <main id="app"></main>
