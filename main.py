@@ -35,7 +35,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 START_TIME = time.time()
 db = Database(os.path.join(BASE_DIR, "files.db"))
 
-
 def _assemble_assets():
     """Rebuild binary brand assets (logo, favicon) from base64 text chunks.
 
@@ -63,7 +62,6 @@ def _assemble_assets():
         except Exception as e:
             log.warning("Asset assembly failed for %s: %s", name, e)
 
-
 _assemble_assets()
 
 bot: Client = None
@@ -77,7 +75,6 @@ MEDIA_FILTER = (
 # --------------------------------------------------------------------- #
 #  Helpers                                                               #
 # --------------------------------------------------------------------- #
-
 def extract_media(message) -> dict | None:
     """Pull a catalog record out of a Pyrogram message."""
     media = (
@@ -113,7 +110,6 @@ def extract_media(message) -> dict | None:
         "message_id": message.id,
         "caption": (message.caption or "")[:500],
     }
-
 
 async def index_message(message) -> str | None:
     """Add a message's media to the catalog (deduped per chat+message)."""
@@ -191,7 +187,7 @@ def _parse_series(file_name: str):
     if not m:
         return None, 0, 0
     season, episode = int(m.group(1)), int(m.group(2))
-    series = base[: m.start()].strip(" -._[]()'").strip()
+    series = base[: m.start()].strip(" -._[]()'"").strip()
     return (series or None), season, episode
 
 
@@ -344,7 +340,6 @@ def row_to_json(row) -> dict:
 # --------------------------------------------------------------------- #
 #  Bot                                                                   #
 # --------------------------------------------------------------------- #
-
 def register_bot(client: Client):
     @client.on_message(filters.command("start") & filters.private)
     async def start_cmd(c, m):
@@ -703,7 +698,6 @@ async def get_file(uuid: str):
     row = await ensure_metadata(row)   # one-time: fills in mime/size/codecs
     return row_to_json(row)
 
-
 @app.post("/api/files")
 async def add_file(body: dict):
     if not isinstance(body, dict):
@@ -813,6 +807,7 @@ async def list_series():
             "year": (m["year"] if m else "") or "",
             "genre": (m["genre"] if m else "") or "",
             "has_poster": bool(m["has_poster"]) if m else False,
+            "has_banner": bool(m["has_banner"]) if m else False,
         })
     result.sort(key=lambda x: -x["latest"])
     return result
@@ -856,6 +851,50 @@ async def get_poster(name: str):
     val = db.series_poster((name or "").strip())
     if not val.startswith("data:"):
         raise HTTPException(404, "No poster")
+    head, _, b64 = val.partition(",")
+    mime = head[5:].split(";")[0] or "image/jpeg"
+    return Response(
+        content=base64.b64decode(b64),
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=60"},
+    )
+
+
+@app.post("/api/series/{name}/banner")
+async def upload_banner(name: str, request: Request, banner: UploadFile = File(...)):
+    """Admin: set the hero banner (horizontal image) for a series."""
+    _require_admin(request)
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(400, "Series name is required")
+    data = await banner.read()
+    if not data:
+        raise HTTPException(400, "Banner file is empty")
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(400, "Banner is too big (max 2 MB)")
+    mime = (banner.content_type or "").split(";")[0].strip().lower()
+    if mime not in POSTER_TYPES:
+        raise HTTPException(400, "Banner must be a JPG, PNG, WEBP or GIF image")
+    db.set_series_banner(
+        name, "data:" + mime + ";base64," + base64.b64encode(data).decode()
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/series/{name}/banner")
+async def clear_banner(name: str, request: Request):
+    """Admin: remove a series hero banner."""
+    _require_admin(request)
+    db.set_series_banner((name or "").strip(), "")
+    return {"ok": True}
+
+
+@app.get("/banner/{name}")
+async def get_banner(name: str):
+    """Public: hero banner image bytes for a series."""
+    val = db.series_banner((name or "").strip())
+    if not val.startswith("data:"):
+        raise HTTPException(404, "No banner")
     head, _, b64 = val.partition(",")
     mime = head[5:].split(";")[0] or "image/jpeg"
     return Response(

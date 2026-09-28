@@ -5,7 +5,6 @@ import sqlite3
 import threading
 import time
 
-
 class Database:
     def __init__(self, path: str):
         self._lock = threading.Lock()
@@ -54,6 +53,11 @@ class Database:
         # poster images for series (data-URL text; same lifespan as the DB)
         try:
             self._conn.execute("ALTER TABLE series_meta ADD COLUMN poster TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        # hero banners (horizontal images for the home hero / series page)
+        try:
+            self._conn.execute("ALTER TABLE series_meta ADD COLUMN banner TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
         # user profiles (sign up / log in) + per-user watch progress
@@ -199,12 +203,31 @@ class Database:
             ).fetchone()
         return (row["poster"] or "") if row else ""
 
+    def series_banner(self, name: str) -> str:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT banner FROM series_meta WHERE name = ?", (name,)
+            ).fetchone()
+        return (row["banner"] or "") if row else ""
+
+    def set_series_banner(self, name: str, banner: str = ""):
+        """Hero banner image (data-URL) for a series (upsert; empty clears)."""
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO series_meta (name, banner)
+                   VALUES (?, ?)
+                   ON CONFLICT(name) DO UPDATE SET banner = excluded.banner""",
+                (name, banner),
+            )
+            self._conn.commit()
+
     def series_meta_all(self):
-        """Content details for all series (poster NOT included — it's big)."""
+        """Content details for all series (poster/banner NOT included — big)."""
         with self._lock:
             return self._conn.execute(
                 "SELECT name, description, year, genre, "
-                "CASE WHEN poster IS NOT NULL AND poster != '' THEN 1 ELSE 0 END AS has_poster "
+                "CASE WHEN poster IS NOT NULL AND poster != '' THEN 1 ELSE 0 END AS has_poster, "
+                "CASE WHEN banner IS NOT NULL AND banner != '' THEN 1 ELSE 0 END AS has_banner "
                 "FROM series_meta ORDER BY name"
             ).fetchall()
 
