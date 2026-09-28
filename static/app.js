@@ -10,6 +10,7 @@ let SERIES = [];   // series content details (/api/series)
 let LOAD_FAILED = false;
 let USER = null;       // {id, name, tok, exp} when logged in
 let PROGRESS = {};     // logged-in user's watch positions (server-synced)
+let HERO_TIMER = null;  // hero banner slideshow auto-rotate
 const USER_KEY = "userTok";
 
 /* -------------------------------------------------------------- */
@@ -113,7 +114,7 @@ function codecTag(f) {
   return ` <span class="${cls}">${esc(f.codecs)}</span>`;
 }
 
-/* group files into series: [{name, eps: [files sorted], latest, poster, thumbUuid}] */
+/* group files into series: [{name, eps: [files sorted], latest, poster, banner, thumbUuid}] */
 function buildSeries(files) {
   const map = {};
   files.forEach(f => {
@@ -127,6 +128,7 @@ function buildSeries(files) {
       eps: eps.sort((a, b) => (a.season - b.season) || (a.episode - b.episode)),
       latest: Math.max(...eps.map(e => e.created_at || 0)),
       poster: meta.has_poster ? "/poster/" + encodeURIComponent(name) : null,
+      banner: meta.has_banner ? "/banner/" + encodeURIComponent(name) : null,
       thumbUuid: (eps.find(e => e.has_thumb) || {}).uuid || null,
     };
   }).sort((a, b) => b.latest - a.latest);
@@ -243,6 +245,73 @@ function heroHTML(f) {
   </section>`;
 }
 
+/* Hero banner slideshow — series that have a wide horizontal banner
+   (uploaded from Admin > Content > Edit) rotate in the big home hero.
+   Vertical posters stay in their 2:3 cards; banners stay wide — each
+   image shows in its own aspect, never stretched into the other. */
+function heroSlidesHTML(slides) {
+  const items = slides.map((s, i) => {
+    const m = SERIES.find(x => x.name === s.name) || {};
+    const cont = s.eps.find(e => started(e.uuid));
+    const first = cont || s.eps[0];
+    const desc = m.description || `${s.eps.length} episode${s.eps.length > 1 ? "s" : ""} — streamed straight from Telegram in original quality.`;
+    const metaBits = [m.year, m.genre].filter(Boolean).map(esc).join(" · ")
+      || `${s.eps.length} episode${s.eps.length > 1 ? "s" : ""}`;
+    return `
+    <div class="hslide${i === 0 ? " active" : ""}">
+      <img class="backdrop" src="${s.banner}" alt="" ${i ? 'loading="lazy"' : ""}
+        onerror="this.closest('.hslide').style.display='none'">
+      <div class="fade"></div>
+      <div class="info">
+        <span class="tagline">${cont ? "Continue Watching" : "Featured Series"}</span>
+        <h1>${esc(s.name)}</h1>
+        <div class="meta">${metaBits}</div>
+        <p class="desc">${esc(desc)}</p>
+        <div class="cta">
+          <a class="btn primary" href="#/watch/${first.uuid}">${icon("play", 15)} ${cont ? "Continue E" + (cont.episode || "?") : "Play E1"}</a>
+          <a class="btn ghost" href="#/series/${encodeURIComponent(s.name)}">${icon("chevR", 15)} All episodes</a>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  const dots = slides.length > 1
+    ? `<div class="hdots">${slides.map((s, i) =>
+        `<button class="hdot${i === 0 ? " active" : ""}" data-hd="${i}" aria-label="Banner ${i + 1}"></button>`).join("")}</div>`
+    : "";
+  return `
+  <section class="hero hero-slides">
+    <div class="hs-track">${items}</div>
+    ${dots}
+  </section>`;
+}
+
+function stopHeroTimer() {
+  if (HERO_TIMER) { clearInterval(HERO_TIMER); HERO_TIMER = null; }
+}
+
+function wireHeroSlides() {
+  const root = $(".hero-slides");
+  if (!root) return;
+  const els = [...root.querySelectorAll(".hslide")];
+  const dots = [...root.querySelectorAll(".hdot")];
+  if (els.length < 2) return;
+  let cur = 0;
+  const go = n => {
+    cur = (n + els.length) % els.length;
+    els.forEach((el, i) => el.classList.toggle("active", i === cur));
+    dots.forEach((d, i) => d.classList.toggle("active", i === cur));
+  };
+  stopHeroTimer();
+  HERO_TIMER = setInterval(() => go(cur + 1), 6000);
+  const restart = () => {
+    stopHeroTimer();
+    HERO_TIMER = setInterval(() => go(cur + 1), 6000);
+  };
+  dots.forEach(d => d.addEventListener("click", () => { go(+d.dataset.hd); restart(); }));
+  root.addEventListener("pointerenter", stopHeroTimer);
+  root.addEventListener("pointerleave", restart);
+}
+
 /* -------------------------------------------------------------- */
 /*  pages                                                          */
 /* -------------------------------------------------------------- */
@@ -284,9 +353,10 @@ function renderHome() {
   const recent = files.slice(0, 12);
   const hero = files.find(f => f.has_thumb) || files[0];
   const series = buildSeries(files);
+  const heroSlides = series.filter(s => s.banner);
   const standalone = files.filter(f => !f.series);
 
-  app.innerHTML = heroHTML(hero)
+  app.innerHTML = (heroSlides.length ? heroSlidesHTML(heroSlides) : heroHTML(hero))
     + rowHTML("Continue Watching", watching, "cw")
     + rowHTML(q ? `Results for "${esc(q)}"` : "Recently Added", recent, "recent")
     + (series.length ? `
@@ -306,6 +376,7 @@ function renderHome() {
       if (el) el.scrollBy({ left: (btn.classList.contains("right") ? 1 : -1) * el.clientWidth * 0.8, behavior: "smooth" });
     });
   });
+  wireHeroSlides();
 }
 
 function errorBoxHTML(iconName, title, msg, retry) {
@@ -334,9 +405,11 @@ async function renderSeries(name) {
   const cont = eps.find(e => started(e.uuid));
   const first = cont || eps[0];
   const desc = meta.description || "Hindi dub anime — stream straight from Telegram in original quality.";
-  const back = meta.has_poster
-    ? `/poster/${encodeURIComponent(name)}`
-    : ((eps.find(e => e.has_thumb) || {}).uuid ? `/thumb/${eps.find(e => e.has_thumb).uuid}` : "");
+  const back = meta.has_banner
+    ? `/banner/${encodeURIComponent(name)}`
+    : meta.has_poster
+      ? `/poster/${encodeURIComponent(name)}`
+      : ((eps.find(e => e.has_thumb) || {}).uuid ? `/thumb/${eps.find(e => e.has_thumb).uuid}` : "");
 
   app.innerHTML = `
   <div class="watch-page">
@@ -719,16 +792,26 @@ function openSeriesEdit(name) {
     { name, description: "", year: "", genre: "", has_poster: false };
   aModal(`
     <h2>${icon("edit", 20)} ${esc(name)}</h2>
+    <label>Poster — vertical image (2:3, e.g. 300x450)</label>
     <div class="ae-poster">
       ${s.has_poster
         ? `<img src="/poster/${encodeURIComponent(name)}" onerror="this.remove()">`
         : `<span class="ae-ph">${icon("tv", 40)}</span>`}
     </div>
-    <label>Poster image (JPG / PNG / WEBP · 2 MB max)</label>
     <input id="aeFile" type="file" accept="image/*" style="padding:6px;">
     ${s.has_poster
       ? `<button class="btn small danger" id="aeDelPoster" style="margin-top:8px;">${icon("trash", 13)} Remove poster</button>`
-      : `<p class="hint" style="margin-top:6px;">No poster yet — episode thumbnail (if any) is used instead.</p>`}
+      : `<p class="hint" style="margin-top:6px;">Vertical posters show in the 2:3 series cards.</p>`}
+    <label style="margin-top:16px;">Hero banner — horizontal image (16:9, e.g. 1920x1080)</label>
+    <div class="ae-banner">
+      ${s.has_banner
+        ? `<img src="/banner/${encodeURIComponent(name)}" onerror="this.remove()">`
+        : `<span class="ae-ph">${icon("film", 34)}</span>`}
+    </div>
+    <input id="aeBannerFile" type="file" accept="image/*" style="padding:6px;">
+    ${s.has_banner
+      ? `<button class="btn small danger" id="aeDelBanner" style="margin-top:8px;">${icon("trash", 13)} Remove banner</button>`
+      : `<p class="hint" style="margin-top:6px;">Wide banners rotate in the big home hero — kept wide, never squeezed into posters.</p>`}
     <div class="ae-grid">
       <div><label>Release year</label><input id="aeYear" value="${esc(s.year || "")}" placeholder="2025"></div>
       <div><label>Genre</label><input id="aeGenre" value="${esc(s.genre || "")}" placeholder="Action, Fantasy, Isekai"></div>
@@ -750,6 +833,16 @@ function openSeriesEdit(name) {
     };
     rd.readAsDataURL(f);
   });
+  $("#aeBannerFile").addEventListener("change", () => {
+    const f = $("#aeBannerFile").files[0];
+    if (!f || !f.type.startsWith("image/")) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      const box = $(".ae-banner");
+      box.innerHTML = `<img src="${rd.result}">`;
+    };
+    rd.readAsDataURL(f);
+  });
   const dp = $("#aeDelPoster");
   if (dp) dp.addEventListener("click", async () => {
     dp.disabled = true;
@@ -762,15 +855,36 @@ function openSeriesEdit(name) {
       renderAdminTab();
     } catch (e) { toast(e.message); dp.disabled = false; }
   });
+  const db_ = $("#aeDelBanner");
+  if (db_) db_.addEventListener("click", async () => {
+    db_.disabled = true;
+    try {
+      await adminApi(`/api/series/${encodeURIComponent(name)}/banner`, { method: "DELETE" });
+      toast("Banner removed " + icon("check", 13));
+      aModalClose();
+      await loadFiles();
+      await adminLoadData();
+      renderAdminTab();
+    } catch (e) { toast(e.message); db_.disabled = false; }
+  });
   $("#aeSave").addEventListener("click", async () => {
     const btn = $("#aeSave");
     const posterFile = $("#aeFile").files[0];
+    const bannerFile = $("#aeBannerFile").files[0];
     try {
       if (posterFile) {
         btn.disabled = true; btn.textContent = "Uploading…";
         const fd = new FormData();
         fd.append("poster", posterFile);
         await adminApi(`/api/series/${encodeURIComponent(name)}/poster`,
+          { method: "POST", body: fd });
+        btn.textContent = "Saving…";
+      }
+      if (bannerFile) {
+        btn.disabled = true; btn.textContent = "Uploading…";
+        const fd = new FormData();
+        fd.append("banner", bannerFile);
+        await adminApi(`/api/series/${encodeURIComponent(name)}/banner`,
           { method: "POST", body: fd });
         btn.textContent = "Saving…";
       }
@@ -1017,6 +1131,7 @@ async function renderAdmin() {
 function route() {
   const h = location.hash || "#/";
   closeDrawer();
+  stopHeroTimer();
   if (h.startsWith("#/watch/")) { setTab(null); renderWatch(decodeURIComponent(h.split("/")[2] || "")); }
   else if (h.startsWith("#/series/")) { setTab(null); renderSeries(decodeURIComponent(h.split("/")[2] || "")); }
   else if (h.startsWith("#/admin")) { setTab(null); renderAdmin(); }
