@@ -5,6 +5,7 @@ import sqlite3
 import threading
 import time
 
+
 class Database:
     def __init__(self, path: str):
         self._lock = threading.Lock()

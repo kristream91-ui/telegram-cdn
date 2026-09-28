@@ -35,6 +35,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 START_TIME = time.time()
 db = Database(os.path.join(BASE_DIR, "files.db"))
 
+
 def _assemble_assets():
     """Rebuild binary brand assets (logo, favicon) from base64 text chunks.
 
@@ -61,6 +62,7 @@ def _assemble_assets():
                 fh.write(data)
         except Exception as e:
             log.warning("Asset assembly failed for %s: %s", name, e)
+
 
 _assemble_assets()
 
@@ -110,6 +112,7 @@ def extract_media(message) -> dict | None:
         "message_id": message.id,
         "caption": (message.caption or "")[:500],
     }
+
 
 async def index_message(message) -> str | None:
     """Add a message's media to the catalog (deduped per chat+message)."""
@@ -187,7 +190,7 @@ def _parse_series(file_name: str):
     if not m:
         return None, 0, 0
     season, episode = int(m.group(1)), int(m.group(2))
-    series = base[: m.start()].strip(" -._[]()'"").strip()
+    series = base[: m.start()].strip(" -._[]()" + chr(39)).strip()
     return (series or None), season, episode
 
 
