@@ -451,10 +451,20 @@ async function renderWatch(uuid) {
 
     if (isTS) {
       /* MPEG-TS container (anime files are often TS renamed to .mp4) —
-         the browser can't play it natively, so pipe it through mpegts.js.
-         Duration + filesize from Telegram make the seek bar and seeking
-         work for VOD (duration is in milliseconds per mpegts.js API). */
+         the browser can't play it natively, so pipe it through mpegts.js. */
       if (window.mpegts && mpegts.getFeatureList().networkStreamIO) {
+        /* mpegts.js ignores MediaDataSource.duration on TS streams (only
+           its FLV path reads it) — the MSE duration would stay Infinity
+           and the seek bar would show no total time. Capture the
+           MediaSource that attachMediaElement creates and set the real
+           duration (probed from the TS stream's PCRs) on it ourselves. */
+        let ms = null;
+        const RealMS = window.MediaSource;
+        try {
+          const PatchedMS = function () { const i = new RealMS(); ms = i; return i; };
+          PatchedMS.prototype = RealMS.prototype;
+          window.MediaSource = PatchedMS;
+        } catch { /* fall back to no patch */ }
         const player = mpegts.createPlayer(
           {
             type: "mpegts", isLive: false, url: "/stream/" + uuid,
@@ -463,6 +473,14 @@ async function renderWatch(uuid) {
           },
           { seekType: "range" });
         player.attachMediaElement(p);
+        window.MediaSource = RealMS;
+        if (ms && f.duration) {
+          const setDur = () => {
+            try { if (ms.readyState === "open") ms.duration = f.duration; } catch { /* ignore */ }
+          };
+          if (ms.readyState === "open") setDur();
+          else ms.addEventListener("sourceopen", setDur, { once: true });
+        }
         player.on(mpegts.Events.ERROR, () => {
           playerFail("Could not play this TS file",
             "The video codec inside isn't browser-supported" +
