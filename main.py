@@ -77,6 +77,7 @@ MEDIA_FILTER = (
 # --------------------------------------------------------------------- #
 #  Helpers                                                               #
 # --------------------------------------------------------------------- #
+
 def extract_media(message) -> dict | None:
     """Pull a catalog record out of a Pyrogram message."""
     media = (
@@ -190,7 +191,7 @@ def _parse_series(file_name: str):
     if not m:
         return None, 0, 0
     season, episode = int(m.group(1)), int(m.group(2))
-    series = base[: m.start()].strip(" -._[]()" + chr(39)).strip()
+    series = base[: m.start()].strip(" -._[]()").strip(chr(39) + chr(34)).strip()
     return (series or None), season, episode
 
 
@@ -343,6 +344,7 @@ def row_to_json(row) -> dict:
 # --------------------------------------------------------------------- #
 #  Bot                                                                   #
 # --------------------------------------------------------------------- #
+
 def register_bot(client: Client):
     @client.on_message(filters.command("start") & filters.private)
     async def start_cmd(c, m):
