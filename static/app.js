@@ -8,7 +8,7 @@ const app = $("#app");
 let FILES = [];
 let SERIES = [];   // series content details (/api/series)
 let LOAD_FAILED = false;
-let USER = null;       // {id, name, tok, exp} when logged in
+let USER = null;       // {id, name, tok, exp, admin} when logged in
 let PROGRESS = {};     // logged-in user's watch positions (server-synced)
 let HERO_TIMER = null;  // hero banner slideshow auto-rotate
 const USER_KEY = "userTok";
@@ -76,6 +76,22 @@ function fmtDur(s) {
 /* display title without the file extension (keeps the Netflix feel) */
 function displayName(f) {
   return String(f.name || f.uuid).replace(/\.(mp4|m4v|mkv|avi|mov|webm|ts|flv|wmv|mpg|mpeg)$/i, "");
+}
+
+/* ---------------- who may see admin tools? ----------------
+   Only the admin account (Krish77 by default) — i.e. someone who logged in
+   with the admin username+password, or a browser holding an admin token.
+   Everyone else gets a clean viewer experience: no add buttons, no panel. */
+function isAdminUI() {
+  if (adminTok()) return true;
+  return !!(USER && USER.admin);
+}
+
+function applyAdminVisibility() {
+  const show = isAdminUI();
+  document.querySelectorAll('a[href="#/admin"], #drawerAdd').forEach(el => {
+    el.style.display = show ? "" : "none";
+  });
 }
 
 function toast(msg) {
@@ -209,16 +225,20 @@ function rowHTML(title, files, id) {
 }
 
 function brandHeroHTML() {
+  const admin = isAdminUI();
   return `
   <section class="hero brand-hero">
     <div class="fade"></div>
     <div class="info">
       <img class="brand-logo-lg" src="/static/logo.webp" alt="Ani77">
       <h1>Stream Hindi Dub Anime<span class="badge-new">FREE</span></h1>
-      <p class="desc">Your personal OTT library, powered by Telegram. Send an MP4 or TS
-        file to the bot or add it with a file_id — and watch it right here, anywhere.</p>
+      <p class="desc">${admin
+        ? "Your personal OTT library, powered by Telegram. Send an MP4 or TS file to the bot or add it with a file_id — and watch it right here, anywhere."
+        : "A hand-picked Hindi dub anime library. New episodes are added regularly — check back soon!"}</p>
       <div class="cta">
-        <a class="btn gold" href="#" id="heroAdd">${icon("plus", 15)} Add your first file</a>
+        ${admin
+          ? `<a class="btn gold" href="#" id="heroAdd">${icon("plus", 15)} Add your first file</a>`
+          : `<a class="btn gold" href="#/schedule">${icon("calendar", 15)} See the schedule</a>`}
       </div>
     </div>
   </section>`;
@@ -338,7 +358,8 @@ function renderHome() {
 
   if (!FILES.length) {
     app.innerHTML = brandHeroHTML();
-    $("#heroAdd").addEventListener("click", e => { e.preventDefault(); openModal(); });
+    const ha = $("#heroAdd");
+    if (ha) ha.addEventListener("click", e => { e.preventDefault(); openModal(); });
     return;
   }
 
@@ -831,7 +852,7 @@ function wireAdminAdd() {
     go.disabled = true;
     go.textContent = "Detecting…";
     try {
-      await api("/api/files", {
+      await adminApi("/api/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1109,6 +1130,8 @@ async function renderAdmin() {
       <div class="modal-box" style="max-width:400px;margin:8vh auto 0">
         <h2>${icon("shield", 22)} Admin Login</h2>
         <p class="hint">Only the admin can manage the library.</p>
+        <label>Username</label>
+        <input id="adminUser" placeholder="Krish77" autocomplete="username" spellcheck="false">
         <label>Password</label>
         <input id="adminPw" type="password" placeholder="••••••••" autocomplete="current-password">
         <div id="adminStatus" class="add-status hidden"></div>
@@ -1126,7 +1149,10 @@ async function renderAdmin() {
         const j = await api("/api/admin/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: $("#adminPw").value }),
+          body: JSON.stringify({
+            username: $("#adminUser").value.trim(),
+            password: $("#adminPw").value,
+          }),
         });
         localStorage.setItem(ADMIN_KEY, JSON.stringify({ tok: j.token, exp: j.expires_at }));
         toast("Admin login " + icon("check", 13));
@@ -1142,7 +1168,7 @@ async function renderAdmin() {
     };
     $("#adminLogin").addEventListener("click", doLogin);
     $("#adminPw").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
-    $("#adminPw").focus();
+    $("#adminUser").focus();
     return;
   }
 
@@ -1197,6 +1223,7 @@ async function renderAdmin() {
 
   await adminLoadData();
   renderAdminTab();
+  applyAdminVisibility();
 }
 
 /* -------------------------------------------------------------- */
@@ -1320,8 +1347,10 @@ function renderSettings() {
 
     <section class="settings-card">
       <h3>${icon("sliders", 18)} More</h3>
-      <a class="drawer-item" href="#/admin">${icon("shield", 17)} Admin panel</a>
-      <button class="drawer-item" id="sAdd">${icon("plus", 17)} Add a file by file_id</button>
+      ${isAdminUI() ? `
+        <a class="drawer-item" href="#/admin">${icon("shield", 17)} Admin panel</a>
+        <button class="drawer-item" id="sAdd">${icon("plus", 17)} Add a file by file_id</button>`
+      : `<p class="page-sub" style="margin:0;">Ani77 — Hindi dub anime, powered by Telegram.</p>`}
     </section>
   </div>`;
   const l2 = $("#logoutBtn2");
@@ -1329,6 +1358,7 @@ function renderSettings() {
   const sl = $("#sLogin"); if (sl) sl.addEventListener("click", () => openAuthModal("login"));
   const ss = $("#sSignup"); if (ss) ss.addEventListener("click", () => openAuthModal("signup"));
   const sa = $("#sAdd"); if (sa) sa.addEventListener("click", () => openModal());
+  applyAdminVisibility();
 }
 
 async function loadFiles() {
@@ -1375,6 +1405,7 @@ function doLogout(silent) {
   USER = null;
   PROGRESS = {};
   renderNavUser();
+  applyAdminVisibility();
   if (!silent) toast("Logged out");
 }
 
@@ -1413,6 +1444,7 @@ function renderNavUser() {
       openAuthModal("signup");
     });
   }
+  applyAdminVisibility();
 }
 
 function openDrawer() {
@@ -1482,6 +1514,7 @@ async function submitAuth() {
     });
     localStorage.setItem(USER_KEY, JSON.stringify({
       tok: j.token, exp: j.expires_at, id: j.user.id, name: j.user.name,
+      admin: !!j.user.admin,
     }));
     USER = userFromStorage();
     closeAuthModal();
@@ -1491,6 +1524,7 @@ async function submitAuth() {
       : "Profile created — welcome " + esc(j.user.name) + " " + icon("check", 13));
     await loadFiles();
     renderNavUser();
+    applyAdminVisibility();
     route();
   } catch (e) {
     authShowStatus(e.message, true);
@@ -1562,7 +1596,7 @@ async function boot() {
     btn.disabled = true;
     btn.textContent = "Detecting…";
     try {
-      const j = await api("/api/files", {
+      const j = await adminApi("/api/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1587,6 +1621,7 @@ async function boot() {
   });
 
   await refresh();
+  applyAdminVisibility();
 }
 
 boot();
