@@ -8,7 +8,7 @@ const app = $("#app");
 let FILES = [];
 let SERIES = [];   // series content details (/api/series)
 let LOAD_FAILED = false;
-let USER = null;       // {id, name, tok, exp, admin} when logged in
+let USER = null;       // {id, name, tok, exp} when logged in
 let PROGRESS = {};     // logged-in user's watch positions (server-synced)
 let HERO_TIMER = null;  // hero banner slideshow auto-rotate
 const USER_KEY = "userTok";
@@ -1405,7 +1405,6 @@ function doLogout(silent) {
   USER = null;
   PROGRESS = {};
   renderNavUser();
-  applyAdminVisibility();
   if (!silent) toast("Logged out");
 }
 
