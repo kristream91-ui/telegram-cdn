@@ -457,30 +457,48 @@ async function renderWatch(uuid) {
 
   const badCodec = /hevc|ac-3|eac-3/i.test(f.codecs || "");
   const isTS = (f.mime || "").toLowerCase() === "video/mp2t";
+  const isYT = f.source === "youtube";
   const banner = badCodec
     ? `<div class="codec-banner">${icon("alert", 16)} <b>Codec: ${esc(f.codecs)}</b> — most browsers can't play this.
        If it doesn't start, download it and watch in MX Player / VLC.</div>` : "";
+
+  const playerBlock = isYT
+    ? `<div class="player-wrap"><iframe class="yt-frame"
+         src="https://www.youtube.com/embed/${esc(f.yt_id)}?rel=0&modestbranding=1"
+         title="${esc(displayName(f))}"
+         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+         allowfullscreen loading="lazy"></iframe></div>`
+    : `<div class="player-wrap"><video id="player" controls playsinline preload="metadata"
+      ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
+      ${isTS ? "" : `src="/stream/${uuid}"`}></video></div>`;
+
+  const metaBlock = isYT
+    ? `${f.duration ? fmtDur(f.duration) + " · " : ""}YouTube · <a href="https://www.youtube.com/watch?v=${esc(f.yt_id)}" target="_blank" rel="noopener" style="color:var(--blue2)">watch on YouTube</a>`
+    : `${fmtSize(f.size)}<span class="sep">·</span>${esc(f.mime || "unknown")}
+          ${f.codecs ? `<span class="sep">·</span>${esc(f.codecs)}` : ""}
+          ${f.duration ? `<span class="sep">·</span>${fmtDur(f.duration)}` : ""}
+          <span class="sep">·</span>${new Date(f.created_at * 1000).toLocaleDateString()}`;
+
+  const actionBlock = isYT
+    ? `<a class="btn gold" href="https://www.youtube.com/watch?v=${esc(f.yt_id)}" target="_blank" rel="noopener">${icon("play", 15)} Open on YouTube</a>
+        <button class="btn ghost" id="copyBtn">${icon("link", 15)} Copy link</button>`
+    : `<a class="btn gold" href="/download/${uuid}">${icon("download", 15)} Download</a>
+        <button class="btn ghost" id="copyBtn">${icon("link", 15)} Copy link</button>`;
 
   app.innerHTML = `
   <div class="watch-page">
     <a href="#/" class="btn ghost back-btn">${icon("arrowL", 15)} Back</a>
     ${banner}
-    <div class="player-wrap"><video id="player" controls playsinline preload="metadata"
-      ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
-      ${isTS ? "" : `src="/stream/${uuid}"`}></video></div>
+    ${playerBlock}
 
     <div class="watch-head">
       <div>
         <h1>${esc(displayName(f))}</h1>
-        <div class="meta">${fmtSize(f.size)}<span class="sep">·</span>${esc(f.mime || "unknown")}
-          ${f.codecs ? `<span class="sep">·</span>${esc(f.codecs)}` : ""}
-          ${f.duration ? `<span class="sep">·</span>${fmtDur(f.duration)}` : ""}
-          <span class="sep">·</span>${new Date(f.created_at * 1000).toLocaleDateString()}</div>
+        <div class="meta">${metaBlock}</div>
         ${f.caption ? `<div class="caption">${esc(f.caption)}</div>` : ""}
       </div>
       <div class="actions">
-        <a class="btn gold" href="/download/${uuid}">${icon("download", 15)} Download</a>
-        <button class="btn ghost" id="copyBtn">${icon("link", 15)} Copy link</button>
+        ${actionBlock}
       </div>
     </div>
 
@@ -498,7 +516,7 @@ async function renderWatch(uuid) {
   </div>`;
 
   const p = $("#player");
-  if (p) {
+  if (p && !isYT) {
     const saved = getPos(uuid);
     if (saved && saved.pos > 10 && saved.pos < (saved.dur || Infinity) - 30) {
       p.addEventListener("loadedmetadata", () => {
@@ -743,6 +761,61 @@ function adminAddHTML() {
     <div id="aaStatus" class="add-status hidden"></div>
     <button class="btn primary" id="aaGo" style="margin-top:16px;">${icon("plus", 15)} Detect & Add</button>
   </div>`;
+}
+
+/* ---------------- youtube tab ---------------- */
+
+function adminYoutubeHTML() {
+  return `<div class="admin-add">
+    <h3>${icon("play", 18)} Import from YouTube</h3>
+    <p class="page-sub" style="margin-bottom:4px;">Paste a <b>playlist link</b> (or a single video link).
+    Videos play right on your site via YouTube's official embedded player — nothing is downloaded or re-hosted.</p>
+    <label>YouTube playlist / video link <span class="req">*</span></label>
+    <input id="ayUrl" placeholder="https://youtube.com/playlist?list=..." spellcheck="false">
+    <label>Series name (optional — leave empty to use the playlist title)</label>
+    <input id="aySeries" placeholder="That Time I Got Reincarnated as a Slime">
+    <div id="ayStatus" class="add-status hidden"></div>
+    <button class="btn primary" id="ayGo" style="margin-top:16px;">${icon("play", 15)} Import</button>
+    <p class="hint" style="margin-top:12px;">Tip: episodes are numbered automatically from the titles
+    (S1E01, Episode 12 …). Private or embed-disabled videos won't play.</p>
+  </div>`;
+}
+
+function wireAdminYoutube() {
+  const go = $("#ayGo");
+  go.addEventListener("click", async () => {
+    const url = $("#ayUrl").value.trim();
+    const st = $("#ayStatus");
+    if (!url) {
+      st.textContent = "Paste a YouTube playlist or video link first.";
+      st.className = "add-status error";
+      return;
+    }
+    go.disabled = true;
+    go.textContent = "Importing… (a playlist can take a few seconds)";
+    st.textContent = "Reading the playlist from YouTube…";
+    st.className = "add-status";
+    try {
+      const j = await adminApi("/api/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url, series: $("#aySeries").value.trim() }),
+      });
+      toast("Imported " + j.added + " video" + (j.added > 1 ? "s" : "") + " " + icon("check", 13));
+      await loadFiles();
+      await adminLoadData();
+      ADMIN_TAB = "content";
+      document.querySelectorAll(".admin-tab").forEach(x =>
+        x.classList.toggle("active", x.dataset.atab === "content"));
+      renderAdminTab();
+    } catch (e) {
+      st.textContent = e.message;
+      st.className = "add-status error";
+    } finally {
+      go.disabled = false;
+      go.innerHTML = `${icon("play", 15)} Import`;
+    }
+  });
 }
 
 function wireAdminAdd() {
@@ -1012,6 +1085,7 @@ function renderAdminTab() {
   if (!body) return;
   if (ADMIN_TAB === "files") body.innerHTML = adminFilesHTML();
   else if (ADMIN_TAB === "add") { body.innerHTML = adminAddHTML(); wireAdminAdd(); }
+  else if (ADMIN_TAB === "youtube") { body.innerHTML = adminYoutubeHTML(); wireAdminYoutube(); }
   else body.innerHTML = adminContentHTML();
 
   body.querySelectorAll("[data-edit]").forEach(b =>
@@ -1086,6 +1160,7 @@ async function renderAdmin() {
       <button class="admin-tab active" data-atab="content">${icon("tv", 15)} Content</button>
       <button class="admin-tab" data-atab="files">${icon("film", 15)} Files</button>
       <button class="admin-tab" data-atab="add">${icon("plus", 15)} Add file</button>
+      <button class="admin-tab" data-atab="youtube">${icon("play", 15)} YouTube</button>
     </div>
     <div id="adminBody"></div>
   </div>
