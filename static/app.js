@@ -712,7 +712,10 @@ function adminContentHTML() {
         <p>${esc(s.description
           ? s.description.slice(0, 110) + (s.description.length > 110 ? "…" : "")
           : "No description yet — add one!")}</p>
-        <button class="btn small primary" data-edit="${esc(s.name)}">${icon("edit", 13)} Edit details</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn small primary" data-edit="${esc(s.name)}">${icon("edit", 13)} Edit details</button>
+          <button class="btn small ghost" data-eps="${esc(s.name)}">${icon("film", 13)} Episodes (${s.episodes})</button>
+        </div>
       </div>
     </div>`).join("")}</div>`;
 }
@@ -1105,6 +1108,124 @@ function openDeleteModal(uuid, name) {
   });
 }
 
+/* ---------------- episode manager (names, season/episode, grouping) ---------------- */
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function openEpisodesModal(name) {
+  const eps = ADMIN_FILES.filter(f => (f.series || "") === name)
+    .sort((a, b) => (a.season - b.season) || (a.episode - b.episode));
+  if (!eps.length) { toast("No episodes in this series"); return; }
+  const orig = {};
+  eps.forEach(f => { orig[f.uuid] = { n: f.name || "", s: f.season || 1, e: f.episode || 1 }; });
+
+  const rows = eps.map(f => {
+    const src = f.source === "youtube" ? "YT" : ((f.mime || "").includes("mp2t") ? "TS" : "MP4");
+    return `
+    <div class="epedit" data-uuid="${f.uuid}">
+      <span class="epedit-tag">${src}</span>
+      <input class="ee-name" value="${esc(f.name || "")}" placeholder="Episode name" spellcheck="false">
+      <span class="epedit-se">
+        <input class="ee-season" type="number" min="0" value="${f.season || 1}" title="Season">
+        <input class="ee-episode" type="number" min="0" value="${f.episode || 1}" title="Episode">
+      </span>
+      <button class="ibtn danger ee-drop" title="Remove from this series">${icon("trash", 14)}</button>
+    </div>`;
+  }).join("");
+
+  aModal(`
+    <h2>${icon("film", 20)} ${esc(name)}</h2>
+    <p class="hint">${eps.length} episodes — naam edit karo, season/episode number theek karo, ya niche ke
+    shortcuts use karo. Changes save karne ke baad turant site pe dikhenge.</p>
+    <div class="epedit-tools">
+      <button class="btn small primary" id="eeAuto">${icon("check", 13)} Auto-name (Series S01E01)</button>
+      <button class="btn small ghost" id="eeRenumber">Renumber 1…N</button>
+    </div>
+    <div class="epedit-list">${rows}</div>
+    <div id="eeStatus" class="add-status hidden"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="eeCancel">Cancel</button>
+      <button class="btn primary" id="eeSave">Save changes</button>
+    </div>`);
+
+  const list = $(".epedit-list");
+  const rowEls = () => [...list.querySelectorAll(".epedit")];
+  const st = $("#eeStatus");
+
+  $("#eeCancel").addEventListener("click", aModalClose);
+
+  $("#eeAuto").addEventListener("click", () => {
+    rowEls().forEach(el => {
+      const s = Number(el.querySelector(".ee-season").value) || 1;
+      const e = Number(el.querySelector(".ee-episode").value) || 0;
+      el.querySelector(".ee-name").value = `${name} S${pad2(s)}E${pad2(e)}`;
+    });
+    toast("Names filled — ab Save dabao " + icon("check", 13));
+  });
+
+  $("#eeRenumber").addEventListener("click", () => {
+    const byS = {};
+    rowEls().forEach(el => {
+      const s = Number(el.querySelector(".ee-season").value) || 1;
+      byS[s] = (byS[s] || 0) + 1;
+      el.querySelector(".ee-episode").value = byS[s];
+    });
+    toast("Episode numbers reset per season — ab Save dabao " + icon("check", 13));
+  });
+
+  list.querySelectorAll(".ee-drop").forEach(b => b.addEventListener("click", async () => {
+    const uuid = b.closest(".epedit").dataset.uuid;
+    b.disabled = true;
+    try {
+      await adminApi(`/api/files/${uuid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ series: "" }),
+      });
+      toast("Removed from series " + icon("check", 13));
+      await adminLoadData();
+      aModalClose();
+      renderAdminTab();
+    } catch (e) { toast(e.message); b.disabled = false; }
+  }));
+
+  $("#eeSave").addEventListener("click", async () => {
+    const btn = $("#eeSave");
+    const todo = [];
+    rowEls().forEach(el => {
+      const uuid = el.dataset.uuid;
+      const n = el.querySelector(".ee-name").value.trim();
+      const s = Number(el.querySelector(".ee-season").value) || 1;
+      const e = Number(el.querySelector(".ee-episode").value) || 0;
+      const o = orig[uuid] || {};
+      if (n !== o.n || s !== o.s || e !== o.e) todo.push({ uuid, n, s, e });
+    });
+    if (!todo.length) { toast("Kuch change nahi hua"); return; }
+    btn.disabled = true;
+    let done = 0;
+    try {
+      for (const t of todo) {
+        btn.textContent = `Saving ${done + 1}/${todo.length}…`;
+        await adminApi(`/api/files/${t.uuid}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file_name: t.n, series: name, season: t.s, episode: t.e }),
+        });
+        done++;
+      }
+      toast(`Saved ${done} episode${done > 1 ? "s" : ""} ` + icon("check", 13));
+      await loadFiles();
+      await adminLoadData();
+      aModalClose();
+      renderAdminTab();
+    } catch (err) {
+      toast(err.message);
+      btn.disabled = false;
+      btn.textContent = "Save changes";
+    }
+  });
+}
+
 /* ---------------- admin shell ---------------- */
 
 function renderAdminTab() {
@@ -1117,6 +1238,8 @@ function renderAdminTab() {
 
   body.querySelectorAll("[data-edit]").forEach(b =>
     b.addEventListener("click", () => openSeriesEdit(b.dataset.edit)));
+  body.querySelectorAll("[data-eps]").forEach(b =>
+    b.addEventListener("click", () => openEpisodesModal(b.dataset.eps)));
   body.querySelectorAll("[data-group]").forEach(b =>
     b.addEventListener("click", () =>
       openGroupModal(b.dataset.group, b.dataset.series, +b.dataset.season, +b.dataset.episode)));

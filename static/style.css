@@ -1088,3 +1088,45 @@ body::before { animation: glowDrift 16s ease-in-out infinite alternate; }
     transition-duration: .01ms !important;
   }
 }
+
+/* ---------------- admin episode manager ---------------- */
+
+.epedit-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
+.epedit-list {
+  max-height: 46vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding-right: 4px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding-top: 10px; padding-bottom: 10px;
+}
+.epedit {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 9px; padding: 6px 8px;
+}
+.epedit-tag {
+  flex: none; font-size: 10px; font-weight: 700; letter-spacing: .5px;
+  color: var(--blue2); background: rgba(0, 174, 239, .12);
+  border: 1px solid rgba(0, 174, 239, .3);
+  padding: 3px 6px; border-radius: 5px;
+}
+.epedit .ee-name {
+  flex: 1; min-width: 0;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 9px;
+  color: var(--text); font-size: 12.5px; outline: 0;
+}
+.epedit .ee-name:focus { border-color: rgba(0, 174, 239, .6); }
+.epedit-se { display: flex; gap: 5px; flex: none; }
+.epedit-se input {
+  width: 46px; text-align: center;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 4px;
+  color: var(--gold); font-size: 12.5px; font-weight: 600; outline: 0;
+}
+.epedit-se input:focus { border-color: rgba(255, 184, 0, .6); }
+.epedit .ibtn { width: 30px; height: 30px; }
+@media (max-width: 720px) {
+  .epedit { flex-wrap: wrap; }
+  .epedit .ee-name { flex: 1 1 100%; order: 3; }
+}
