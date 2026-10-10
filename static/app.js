@@ -50,6 +50,15 @@ const ICONS = {
   tag: '<path d="M12 2H2v10l9.3 9.3a1 1 0 0 0 1.4 0l8.6-8.6a1 1 0 0 0 0-1.4L12 2z"/><circle cx="7" cy="7" r="1"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1.2" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1.2" fill="currentColor" stroke="none"/>',
+  volume: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.3 5.7a9 9 0 0 1 0 12.6"/>',
+  mute: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><line x1="16" y1="9" x2="22" y2="15"/><line x1="22" y1="9" x2="16" y2="15"/>',
+  expand: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  compress: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
+  pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="8" height="6" rx="1.2" fill="currentColor" stroke="none"/>',
+  back10: '<path d="M12 5V2.5L7.5 6.5 12 10.5V8a6 6 0 1 1-6 6"/><text x="9" y="16.5" font-size="6.5" font-weight="700" fill="currentColor" stroke="none">10</text>',
+  fwd10: '<path d="M12 5V2.5L16.5 6.5 12 10.5V8a6 6 0 1 0 6 6"/><text x="9" y="16.5" font-size="6.5" font-weight="700" fill="currentColor" stroke="none">10</text>',
+  next: '<polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/>',
 };
 
 function icon(name, size) {
@@ -105,8 +114,11 @@ function toast(msg) {
 /* continue watching — saved per logged-in profile on the server, so it
    follows the user across devices (guests just watch without progress) */
 function savePos(uuid, player) {
-  if (!USER || !player || !player.duration || !player.currentTime) return;
-  const pos = player.currentTime, dur = player.duration;
+  if (!player) return;
+  savePosVals(uuid, player.currentTime, player.duration);
+}
+function savePosVals(uuid, pos, dur) {
+  if (!USER || !dur || !pos) return;
   PROGRESS[uuid] = { pos, dur };
   fetch("/api/progress/" + uuid, {
     method: "POST",
@@ -333,6 +345,332 @@ function wireHeroSlides() {
 }
 
 /* -------------------------------------------------------------- */
+/*  premium video player (custom controls for MP4 + TS)            */
+/* -------------------------------------------------------------- */
+
+const PREF_KEY = "ani77-player";
+const PREFS = { vol: 1, muted: false, rate: 1 };
+try { Object.assign(PREFS, JSON.parse(localStorage.getItem(PREF_KEY) || "{}")); } catch { /* defaults */ }
+function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(PREFS)); } catch { /* private mode */ } }
+
+function clockText(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`
+           : `${m}:${String(x).padStart(2, "0")}`;
+}
+
+const RATES = [1, 1.25, 1.5, 2, 0.5];
+
+function setupPlayerUI(video, uuid) {
+  const wrap = video.closest(".player-wrap");
+  if (!wrap || wrap.querySelector(".pv-ui")) return;
+
+  video.removeAttribute("controls");
+  video.volume = PREFS.vol;
+  video.muted = !!PREFS.muted;
+  video.playbackRate = PREFS.rate || 1;
+
+  wrap.insertAdjacentHTML("beforeend", `
+    <div class="pv-ui" id="pvUi">
+      <div class="pv-spin" id="pvSpin"></div>
+      <div class="pv-flash pv-flash-l" id="pvFlashL"></div>
+      <div class="pv-flash pv-flash-r" id="pvFlashR"></div>
+      <button class="pv-big" id="pvBig" aria-label="Play">${icon("play", 34)}</button>
+      <div class="pv-top">
+        <span class="pv-title" id="pvTitle"></span>
+      </div>
+      <div class="pv-bar" id="pvBar">
+        <button class="pv-btn" id="pvPlay" aria-label="Play/Pause">${icon("play", 20)}</button>
+        <button class="pv-btn pv-hide-sm" id="pvBack" aria-label="Back 10s">${icon("back10", 19)}</button>
+        <button class="pv-btn pv-hide-sm" id="pvFwd" aria-label="Forward 10s">${icon("fwd10", 19)}</button>
+        <span class="pv-time"><b id="pvCur">0:00</b> / <span id="pvDur">0:00</span></span>
+        <div class="pv-seek" id="pvSeek" role="slider" aria-label="Seek">
+          <div class="pv-buf" id="pvBuf"></div>
+          <div class="pv-played" id="pvPlayed"><i class="pv-knob" id="pvKnob"></i></div>
+        </div>
+        <button class="pv-btn" id="pvMute" aria-label="Mute">${icon("volume", 19)}</button>
+        <input class="pv-vol pv-hide-sm" id="pvVol" type="range" min="0" max="1" step="0.05" aria-label="Volume">
+        <button class="pv-btn pv-rate" id="pvRate" aria-label="Speed">1×</button>
+        <button class="pv-btn pv-hide-sm" id="pvPip" aria-label="Picture in picture">${icon("pip", 19)}</button>
+        <button class="pv-btn" id="pvFull" aria-label="Fullscreen">${icon("expand", 19)}</button>
+      </div>
+    </div>`);
+
+  const $p = id => wrap.querySelector(id);
+  const ui = $p("#pvUi"), bar = $p("#pvBar"), seek = $p("#pvSeek");
+  const played = $p("#pvPlayed"), buf = $p("#pvBuf"), knob = $p("#pvKnob");
+  const cur = $p("#pvCur"), dur = $p("#pvDur"), big = $p("#pvBig");
+  const btnPlay = $p("#pvPlay"), btnMute = $p("#pvMute"), btnRate = $p("#pvRate");
+  const btnFull = $p("#pvFull"), btnPip = $p("#pvPip"), spin = $p("#pvSpin");
+  const vol = $p("#pvVol");
+
+  const title = (typeof displayName === "function")
+    ? displayName({ name: document.title }) : "";
+  $p("#pvTitle").textContent = "";
+
+  let hideTimer = null, lastTap = 0, tapSide = 0;
+
+  const showUI = () => {
+    ui.classList.remove("pv-idle");
+    clearTimeout(hideTimer);
+    if (!video.paused && !video.ended) {
+      hideTimer = setTimeout(() => ui.classList.add("pv-idle"), 3200);
+    }
+  };
+  const flash = (side, text) => {
+    const el = $p(side === "l" ? "#pvFlashL" : "#pvFlashR");
+    el.textContent = text;
+    el.classList.add("on");
+    setTimeout(() => el.classList.remove("on"), 450);
+  };
+  const jump = (delta, side) => {
+    try { video.currentTime = Math.max(0, Math.min(video.duration || 1e9, video.currentTime + delta)); } catch { /* not ready */ }
+    flash(side, (delta > 0 ? "+" : "") + delta + "s");
+    showUI();
+  };
+
+  const syncPlay = () => {
+    const playing = !video.paused && !video.ended;
+    btnPlay.innerHTML = icon(playing ? "pause" : "play", 20);
+    big.innerHTML = icon(playing ? "pause" : "play", 34);
+    big.classList.toggle("pv-hidden", playing);
+    if (playing) showUI(); else { clearTimeout(hideTimer); ui.classList.remove("pv-idle"); }
+  };
+  const syncMute = () => {
+    btnMute.innerHTML = icon(video.muted || video.volume === 0 ? "mute" : "volume", 19);
+  };
+  const syncTime = () => {
+    const d = video.duration || 0;
+    cur.textContent = clockText(video.currentTime);
+    dur.textContent = d ? clockText(d) : "--:--";
+    const pct = d ? (video.currentTime / d) * 100 : 0;
+    played.style.width = pct + "%";
+    knob.style.left = pct + "%";
+    try {
+      if (video.buffered && video.buffered.length && d) {
+        buf.style.width = (video.buffered.end(video.buffered.length - 1) / d) * 100 + "%";
+      }
+    } catch { /* ignore */ }
+  };
+
+  // ---- play / pause
+  const toggle = () => {
+    if (video.paused || video.ended) { video.play().catch(() => {}); } else { video.pause(); }
+    showUI();
+  };
+  btnPlay.addEventListener("click", e => { e.stopPropagation(); toggle(); });
+  big.addEventListener("click", e => { e.stopPropagation(); toggle(); });
+  video.addEventListener("click", toggle);
+
+  // ---- double tap / double click to seek
+  video.addEventListener("dblclick", e => {
+    e.preventDefault();
+    const r = video.getBoundingClientRect();
+    jump(e.clientX < r.left + r.width / 2 ? -10 : 10,
+         e.clientX < r.left + r.width / 2 ? "l" : "r");
+  });
+  video.addEventListener("pointerup", e => {
+    if (e.pointerType === "mouse") return;          // mouse already has dblclick
+    const now = Date.now();
+    const r = video.getBoundingClientRect();
+    const side = e.clientX < r.left + r.width / 2 ? "l" : "r";
+    if (now - lastTap < 320 && side === tapSide) {
+      lastTap = 0;
+      jump(side === "l" ? -10 : 10, side);
+    } else { lastTap = now; tapSide = side; }
+  });
+
+  // ---- seek bar
+  let seeking = false;
+  const posFromEvent = e => {
+    const r = seek.getBoundingClientRect();
+    const x = Math.min(Math.max(e.clientX - r.left, 0), r.width);
+    return r.width ? x / r.width : 0;
+  };
+  const preview = e => {
+    const pct = posFromEvent(e);
+    played.style.width = pct * 100 + "%";
+    knob.style.left = pct * 100 + "%";
+    cur.textContent = clockText(pct * (video.duration || 0));
+  };
+  seek.addEventListener("pointerdown", e => {
+    seeking = true;
+    seek.setPointerCapture(e.pointerId);
+    preview(e);
+  });
+  seek.addEventListener("pointermove", e => { if (seeking) preview(e); });
+  seek.addEventListener("pointerup", e => {
+    if (!seeking) return;
+    seeking = false;
+    const pct = posFromEvent(e);
+    try { video.currentTime = pct * (video.duration || 0); } catch { /* ignore */ }
+    syncTime();
+  });
+  seek.addEventListener("pointercancel", () => { seeking = false; });
+
+  // ---- volume / mute / speed
+  vol.value = String(video.muted ? 0 : PREFS.vol);
+  vol.addEventListener("input", () => {
+    video.volume = Number(vol.value);
+    video.muted = video.volume === 0;
+    PREFS.vol = video.volume; PREFS.muted = video.muted;
+    savePrefs(); syncMute();
+  });
+  btnMute.addEventListener("click", e => {
+    e.stopPropagation();
+    video.muted = !video.muted;
+    PREFS.muted = video.muted; savePrefs(); syncMute();
+    if (!video.muted && video.volume === 0) { video.volume = 0.6; vol.value = "0.6"; PREFS.vol = 0.6; savePrefs(); }
+  });
+  btnRate.addEventListener("click", e => {
+    e.stopPropagation();
+    const i = RATES.indexOf(video.playbackRate);
+    const next = RATES[(i + 1) % RATES.length];
+    video.playbackRate = next;
+    btnRate.textContent = next + "×";
+    PREFS.rate = next; savePrefs();
+  });
+  btnRate.textContent = (video.playbackRate || 1) + "×";
+
+  // ---- pip / fullscreen
+  btnPip.addEventListener("click", async e => {
+    e.stopPropagation();
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await video.requestPictureInPicture();
+    } catch { toast("Picture-in-picture not supported here"); }
+  });
+  if (!document.pictureInPictureEnabled) btnPip.style.display = "none";
+
+  const isFull = () => document.fullscreenElement || document.webkitFullscreenElement;
+  btnFull.addEventListener("click", async e => {
+    e.stopPropagation();
+    try {
+      if (isFull()) {
+        await (document.exitFullscreen ? document.exitFullscreen()
+                                       : document.webkitExitFullscreen());
+      } else if (wrap.requestFullscreen) {
+        await wrap.requestFullscreen();
+      } else if (wrap.webkitRequestFullscreen) {
+        wrap.webkitRequestFullscreen();
+      } else if (video.webkitEnterFullscreen) {
+        video.webkitEnterFullscreen();          // iOS Safari
+      }
+    } catch { /* user gesture issues */ }
+  });
+  const onFsChange = () => {
+    const on = !!isFull();
+    btnFull.innerHTML = icon(on ? "compress" : "expand", 19);
+    wrap.classList.toggle("pv-full", on);
+  };
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
+
+  // ---- buffering spinner
+  video.addEventListener("waiting", () => spin.classList.add("on"));
+  video.addEventListener("playing", () => { spin.classList.remove("on"); syncPlay(); });
+  video.addEventListener("canplay", () => spin.classList.remove("on"));
+  video.addEventListener("stalled", () => spin.classList.add("on"));
+  video.addEventListener("play", syncPlay);
+  video.addEventListener("pause", syncPlay);
+  video.addEventListener("ended", syncPlay);
+  video.addEventListener("volumechange", () => {
+    syncMute();
+    if (!video.muted) vol.value = String(video.volume);
+  });
+  video.addEventListener("timeupdate", syncTime);
+  video.addEventListener("progress", syncTime);
+  video.addEventListener("loadedmetadata", syncTime);
+  video.addEventListener("durationchange", syncTime);
+
+  // ---- idle hiding + hover
+  ["pointermove", "pointerdown"].forEach(ev => wrap.addEventListener(ev, showUI));
+  wrap.addEventListener("pointerleave", () => { if (!video.paused) ui.classList.add("pv-idle"); });
+  ui.addEventListener("pointermove", () => { ui.classList.remove("pv-idle"); });
+
+  // ---- keyboard shortcuts
+  const keyHandler = e => {
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    const k = e.key.toLowerCase();
+    const map = { " ": "toggle", k: "toggle", arrowright: 5, arrowleft: -5,
+                  l: 10, j: -10, arrowup: "vol+", arrowdown: "vol-",
+                  m: "mute", f: "full", p: "pip" };
+    const act = map[k];
+    if (act === undefined) {
+      if (/^[0-9]$/.test(k) && video.duration) { video.currentTime = video.duration * (+k / 10); }
+      return;
+    }
+    e.preventDefault();
+    if (act === "toggle") toggle();
+    else if (act === "vol+") { video.volume = Math.min(1, video.volume + 0.1); video.muted = false; }
+    else if (act === "vol-") { video.volume = Math.max(0, video.volume - 0.1); }
+    else if (act === "mute") btnMute.click();
+    else if (act === "full") btnFull.click();
+    else if (act === "pip") btnPip.click();
+    else jump(act, act > 0 ? "r" : "l");
+    showUI();
+  };
+  document.addEventListener("keydown", keyHandler);
+  video.addEventListener("webkitbeginfullscreen", () => wrap.classList.add("pv-full"));
+  video.addEventListener("webkitendfullscreen", () => wrap.classList.remove("pv-full"));
+
+  syncPlay(); syncMute(); syncTime(); showUI();
+}
+
+/* YouTube uses the official IFrame API so Continue Watching works there too. */
+let YT_API_READY = null;
+function loadYouTubeAPI() {
+  if (YT_API_READY) return YT_API_READY;
+  YT_API_READY = new Promise(resolve => {
+    if (window.YT && window.YT.Player) { resolve(true); return; }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(true); };
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+    setTimeout(() => resolve(!!(window.YT && window.YT.Player)), 6000);
+  });
+  return YT_API_READY;
+}
+
+async function setupYouTubePlayer(host, videoId, uuid) {
+  if (!host) return;
+  const ok = await loadYouTubeAPI();
+  if (!ok || !(window.YT && window.YT.Player)) {          // fallback: plain embed
+    host.outerHTML = `<iframe class="yt-frame" src="https://www.youtube.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowfullscreen></iframe>`;
+    return;
+  }
+  let poll = null;
+  const saved = getPos(uuid);
+  const player = new window.YT.Player(host, {
+    videoId: videoId,
+    playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+    events: {
+      onReady: ev => {
+        try {
+          ev.target.setVolume(Math.round((PREFS.muted ? 0 : PREFS.vol) * 100));
+          if (saved && saved.pos > 10 && saved.pos < (saved.dur || Infinity) - 30) {
+            ev.target.seekTo(saved.pos, true);
+          }
+        } catch { /* ignore */ }
+        poll = setInterval(() => {
+          try {
+            const t = ev.target.getCurrentTime(), d = ev.target.getDuration();
+            if (t > 0 && d > 0) savePosVals(uuid, t, d);
+          } catch { /* player gone */ }
+        }, 5000);
+      },
+      onError: () => toast("This video can't play here — tap 'Open on YouTube'"),
+    },
+  });
+  window.addEventListener("hashchange", () => { if (poll) clearInterval(poll); }, { once: true });
+}
+
+/* -------------------------------------------------------------- */
 /*  pages                                                          */
 /* -------------------------------------------------------------- */
 
@@ -484,12 +822,8 @@ async function renderWatch(uuid) {
        If it doesn't start, download it and watch in MX Player / VLC.</div>` : "";
 
   const playerBlock = isYT
-    ? `<div class="player-wrap"><iframe class="yt-frame"
-         src="https://www.youtube.com/embed/${esc(f.yt_id)}?rel=0&modestbranding=1"
-         title="${esc(displayName(f))}"
-         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-         allowfullscreen loading="lazy"></iframe></div>`
-    : `<div class="player-wrap"><video id="player" controls playsinline preload="metadata"
+    ? `<div class="player-wrap"><div class="yt-frame" id="ytPlayer" data-ytid="${esc(f.yt_id)}"></div></div>`
+    : `<div class="player-wrap"><video id="player" playsinline preload="metadata"
       ${f.has_thumb ? `poster="/thumb/${uuid}"` : ""}
       ${isTS ? "" : `src="/stream/${uuid}"`}></video></div>`;
 
@@ -500,10 +834,21 @@ async function renderWatch(uuid) {
           ${f.duration ? `<span class="sep">·</span>${fmtDur(f.duration)}` : ""}
           <span class="sep">·</span>${new Date(f.created_at * 1000).toLocaleDateString()}`;
 
+  const siblings = f.series
+    ? FILES.filter(x => x.series === f.series && x.uuid !== uuid)
+        .sort((a, b) => (a.season - b.season) || (a.episode - b.episode))
+    : [];
+  const nextEp = siblings.find(x => (x.season || 0) > (f.season || 0) ||
+    ((x.season || 0) === (f.season || 0) && (x.episode || 0) > (f.episode || 0)));
+  const nextBtn = nextEp
+    ? `<a class="btn primary" href="#/watch/${nextEp.uuid}">${icon("next", 15)} Next episode</a>` : "";
+
   const actionBlock = isYT
-    ? `<a class="btn gold" href="https://www.youtube.com/watch?v=${esc(f.yt_id)}" target="_blank" rel="noopener">${icon("play", 15)} Open on YouTube</a>
+    ? `${nextBtn}
+        <a class="btn gold" href="https://www.youtube.com/watch?v=${esc(f.yt_id)}" target="_blank" rel="noopener">${icon("play", 15)} Open on YouTube</a>
         <button class="btn ghost" id="copyBtn">${icon("link", 15)} Copy link</button>`
-    : `<a class="btn gold" href="/download/${uuid}">${icon("download", 15)} Download</a>
+    : `${nextBtn}
+        <a class="btn gold" href="/download/${uuid}">${icon("download", 15)} Download</a>
         <button class="btn ghost" id="copyBtn">${icon("link", 15)} Copy link</button>`;
 
   app.innerHTML = `
@@ -614,6 +959,12 @@ async function renderWatch(uuid) {
       });
     }
   }
+
+  if (p && !isYT) {
+    try { setupPlayerUI(p, uuid); }
+    catch (err) { p.setAttribute("controls", "controls"); }   // never leave them stuck
+  }
+  if (isYT) setupYouTubePlayer($("#ytPlayer"), f.yt_id, uuid);
 
   $("#copyBtn").addEventListener("click", async () => {
     const link = location.origin + "/#/watch/" + uuid;
