@@ -48,6 +48,12 @@ class Config:
         or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "")
     )
 
+    # Optional: YouTube Data API v3 key (Google Cloud -> APIs & Services).
+    # With it, playlist imports are read through the official API (full
+    # playlist + durations, no scraping). Without it the app scrapes the
+    # public playlist page and falls back to the RSS feed (newest ~15).
+    YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+
     # Optional comma-separated admin user ids allowed to delete files
     # via the web UI (leave empty to let anyone delete — it's your call).
     ADMINS = {int(x) for x in os.environ.get("ADMINS", "").replace(",", " ").split() if x.strip()}

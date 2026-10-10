@@ -372,15 +372,82 @@ YT_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
          "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 
 
-def _yt_get(url: str) -> str:
+YT_MOBILE_UA = ("Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
+
+
+def _yt_get(url: str, ua: str = None) -> str:
     """Fetch a YouTube page (runs in a worker thread)."""
     req = urllib.request.Request(url, headers={
-        "User-Agent": YT_UA,
+        "User-Agent": ua or YT_UA,
         "Accept-Language": "en-US,en;q=0.9",
         "Cookie": "CONSENT=YES+cb",
     })
     with urllib.request.urlopen(req, timeout=25) as r:
         return r.read().decode("utf-8", "ignore")
+
+
+def _yt_iso_to_secs(txt) -> int:
+    """'PT23M41S' -> 1421."""
+    m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", str(txt or ""))
+    if not m:
+        return 0
+    h, mi, s = (int(x) if x else 0 for x in m.groups())
+    return h * 3600 + mi * 60 + s
+
+
+def _yt_api_playlist(list_id: str, key: str):
+    """Official YouTube Data API v3 — full playlist, no scraping involved."""
+    items, page = [], ""
+    while True:
+        url = ("https://www.googleapis.com/youtube/v3/playlistItems"
+               "?part=snippet&maxResults=50&playlistId=" + list_id +
+               "&key=" + key + ("&pageToken=" + page if page else ""))
+        req = urllib.request.Request(url, headers={"User-Agent": YT_UA})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = json.loads(r.read().decode("utf-8", "ignore"))
+        for it in data.get("items", []):
+            sn = it.get("snippet") or {}
+            vid = ((sn.get("resourceId") or {}).get("videoId")) or ""
+            if vid:
+                items.append((vid, (sn.get("title") or vid).strip(), ""))
+        page = data.get("nextPageToken") or ""
+        if not page or len(items) > 500:
+            break
+    # durations in batches of 50
+    for i in range(0, len(items), 50):
+        chunk = [v for v, _t, _d in items[i:i + 50]]
+        url = ("https://www.googleapis.com/youtube/v3/videos"
+               "?part=contentDetails&id=" + ",".join(chunk) + "&key=" + key)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": YT_UA})
+            with urllib.request.urlopen(req, timeout=25) as r:
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+            durs = {v["id"]: _yt_iso_to_secs(
+                (v.get("contentDetails") or {}).get("duration"))
+                for v in data.get("items", [])}
+            for j, (vid, title, _d) in enumerate(items[i:i + 50]):
+                secs = durs.get(vid, 0)
+                if secs:
+                    items[i + j] = (vid, title, secs)
+        except Exception as e:
+            log.warning("YouTube durations batch failed: %s", e)
+    return [(v, t, d if isinstance(d, int) else 0) for v, t, d in items]
+
+
+def _yt_playlist_rss(list_id: str):
+    """Public RSS feed — never blocked, but YouTube caps it at ~15 videos.
+    Returns (items, playlist_title)."""
+    xml = _yt_get("https://www.youtube.com/feeds/videos.xml?playlist_id=" + list_id)
+    ids = re.findall(r"<yt:videoId>([^<]+)</yt:videoId>", xml)
+    titles = re.findall(r"<media:title>([^<]+)</media:title>", xml)
+    tm = re.search(r"<title>([^<]+)</title>", xml)
+    pl_title = tm.group(1).strip() if tm else ""
+    out = []
+    for i, vid in enumerate(ids):
+        title = titles[i] if i < len(titles) else vid
+        out.append((vid, title.strip(), 0))
+    return out, pl_title
 
 
 def _yt_walk(obj, key):
@@ -403,7 +470,9 @@ def _yt_dig(obj, key):
 
 
 def _yt_mmss(txt) -> int:
-    """'23:41' or '1:02:03' -> seconds."""
+    """'23:41' or '1:02:03' (or already-seconds) -> seconds."""
+    if isinstance(txt, (int, float)):
+        return int(txt)
     try:
         parts = [int(x) for x in str(txt).split(":")]
     except (ValueError, TypeError):
@@ -1130,18 +1199,50 @@ async def import_youtube(request: Request, body: dict):
     list_m = YT_LIST_RE.search(url)
     if list_m:
         list_id = list_m.group(1)
-        try:
-            html_text = await asyncio.to_thread(
-                _yt_get, "https://www.youtube.com/playlist?list=" + list_id)
-        except Exception as e:
-            raise HTTPException(502, "Could not reach YouTube: " + str(e)[:120])
-        items = _yt_playlist_items(html_text)
+        items, partial, pl_title = [], False, ""
+
+        # 1) official API (best: full playlist + durations) when a key is set
+        if Config.YOUTUBE_API_KEY:
+            try:
+                items = await asyncio.to_thread(
+                    _yt_api_playlist, list_id, Config.YOUTUBE_API_KEY)
+                log.info("YouTube API: %s items", len(items))
+            except Exception as e:
+                log.warning("YouTube API failed (%s) — falling back to page", e)
+
+        # 2) page scrape — desktop first, then the mobile site
+        if not items:
+            for page_url, ua in (
+                ("https://www.youtube.com/playlist?list=" + list_id + "&hl=en&gl=US", None),
+                ("https://m.youtube.com/playlist?list=" + list_id + "&hl=en", YT_MOBILE_UA),
+            ):
+                try:
+                    html_text = await asyncio.to_thread(_yt_get, page_url, ua)
+                    items = _yt_playlist_items(html_text)
+                    if items:
+                        pl_title = _yt_playlist_title(html_text) or pl_title
+                        break
+                    log.warning("YouTube page had no playlist data (%s bytes)", len(html_text))
+                except Exception as e:
+                    log.warning("YouTube page fetch failed: %s", e)
+
+        # 3) RSS — never blocked, but only the newest ~15 videos
+        if not items:
+            try:
+                items, rss_title = await asyncio.to_thread(_yt_playlist_rss, list_id)
+                if items:
+                    partial = True
+                    pl_title = pl_title or rss_title
+                    log.warning("YouTube: using RSS fallback (%s items)", len(items))
+            except Exception as e:
+                log.warning("YouTube RSS fallback failed: %s", e)
+
         if not items:
             raise HTTPException(
-                502, "Could not read this playlist (it may be private, empty "
-                     "or YouTube is blocking). Paste single video links instead.")
+                502, "Could not read this playlist from YouTube. Try again in a "
+                     "minute, or add the videos one by one.")
         if not series:
-            series = _yt_clean_series(_yt_playlist_title(html_text))
+            series = _yt_clean_series(pl_title)
         added = skipped = 0
         for i, (vid, title, dur) in enumerate(items, start=1):
             if (dur or "").strip().lower() in ("upcoming", "premieres"):
@@ -1160,7 +1261,8 @@ async def import_youtube(request: Request, body: dict):
             added += 1
         if not added:
             raise HTTPException(409, "Every video in this playlist is already added")
-        return {"ok": True, "added": added, "skipped": skipped, "series": series}
+        return {"ok": True, "added": added, "skipped": skipped,
+                "series": series, "partial": partial}
 
     vid_m = YT_VIDEO_RE.search(url)
     if not vid_m:

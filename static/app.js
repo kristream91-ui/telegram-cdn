@@ -823,6 +823,12 @@ function wireAdminYoutube() {
         body: JSON.stringify({ url: url, series: $("#aySeries").value.trim() }),
       });
       toast("Imported " + j.added + " video" + (j.added > 1 ? "s" : "") + " " + icon("check", 13));
+      if (j.partial) {
+        st.textContent = "Note: YouTube only shared the newest " + j.added +
+          " videos for this playlist. For the full list, ask the admin to set " +
+          "YOUTUBE_API_KEY (a free YouTube Data API key) on the server.";
+        st.className = "add-status";
+      }
       await loadFiles();
       await adminLoadData();
       ADMIN_TAB = "content";
