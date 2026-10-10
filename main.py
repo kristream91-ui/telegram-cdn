@@ -605,11 +605,23 @@ def _admin_ok(request: Request) -> bool:
     return hmac.compare_digest(sig, expect)
 
 
+def _is_admin_user(name) -> bool:
+    """Is this username the one admin account (Krish77 by default)?"""
+    want = (Config.ADMIN_USER or "").strip().lstrip("@").lower()
+    return bool(want) and (name or "").strip().lstrip("@").lower() == want
+
+
 def _require_admin(request: Request):
+    """Admin access = a valid admin token, OR a logged-in profile that is the
+    admin username (Krish77) signed in with the admin password."""
     if not Config.ADMIN_PASSWORD:
         raise HTTPException(503, "Admin password is not configured on the server")
-    if not _admin_ok(request):
-        raise HTTPException(401, "Admin access required")
+    if _admin_ok(request):
+        return
+    user = _current_user(request)
+    if user is not None and _is_admin_user(user["username"]):
+        return
+    raise HTTPException(401, "Admin access required")
 
 
 # --------------------------------------------------------------------- #
@@ -788,9 +800,16 @@ async def auth_signup(body: dict):
         raise HTTPException(400, "Password is too long")
     if db.get_user_by_name(username):
         raise HTTPException(409, "That username is already taken")
+    # The admin username is reserved: only the person who knows the admin
+    # password can claim it (so nobody else can squat the admin account).
+    if _is_admin_user(username) and not hmac.compare_digest(
+            password, Config.ADMIN_PASSWORD or "\x00"):
+        raise HTTPException(403, "This username is reserved")
     uid = db.create_user(username, _hash_password(password))
     token, exp = _user_token(uid)
-    return {"token": token, "expires_at": exp, "user": {"id": uid, "name": username}}
+    return {"token": token, "expires_at": exp,
+            "user": {"id": uid, "name": username,
+                     "admin": _is_admin_user(username)}}
 
 
 @app.post("/api/auth/login")
@@ -806,7 +825,10 @@ async def auth_login(body: dict):
     token, exp = _user_token(user["uid"])
     return {
         "token": token, "expires_at": exp,
-        "user": {"id": user["uid"], "name": user["username"]},
+        "user": {"id": user["uid"], "name": user["username"],
+                 "admin": _is_admin_user(user["username"]) and bool(
+                     Config.ADMIN_PASSWORD) and hmac.compare_digest(
+                     password, Config.ADMIN_PASSWORD)},
     }
 
 
@@ -815,7 +837,8 @@ async def auth_me(request: Request):
     user = _current_user(request)
     if user is None:
         raise HTTPException(401, "Not logged in")
-    return {"id": user["uid"], "name": user["username"]}
+    return {"id": user["uid"], "name": user["username"],
+            "admin": _is_admin_user(user["username"])}
 
 
 @app.get("/api/progress")
@@ -865,7 +888,9 @@ async def get_file(uuid: str):
     return row_to_json(row)
 
 @app.post("/api/files")
-async def add_file(body: dict):
+async def add_file(request: Request, body: dict):
+    """Admin only — adding files by file_id is a library-management action."""
+    _require_admin(request)
     if not isinstance(body, dict):
         raise HTTPException(400, "Request body must be a JSON object")
 
@@ -919,14 +944,20 @@ async def add_file(body: dict):
 
 @app.post("/api/admin/login")
 async def admin_login(body: dict):
+    """Admin panel login. Accepts the admin username + password
+    (username defaults to the configured admin user when omitted)."""
     if not isinstance(body, dict):
         raise HTTPException(400, "Request body must be a JSON object")
     if not Config.ADMIN_PASSWORD:
         raise HTTPException(503, "Admin password is not configured on the server")
+    user_in = str(body.get("username") or "").strip()
     pw = str(body.get("password") or "")
+    if user_in and not _is_admin_user(user_in):
+        await asyncio.sleep(1)          # slow down brute-force attempts
+        raise HTTPException(401, "Wrong username or password")
     if not hmac.compare_digest(pw, Config.ADMIN_PASSWORD):
         await asyncio.sleep(1)          # slow down brute-force attempts
-        raise HTTPException(401, "Wrong password")
+        raise HTTPException(401, "Wrong username or password")
     token, exp = _admin_token()
     return {"token": token, "expires_at": exp}
 

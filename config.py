@@ -31,6 +31,12 @@ class Config:
     # Admin panel password (set as an env var on Render). Empty = panel disabled.
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
+    # The single admin account allowed to manage the library. The person who
+    # logs in with this username (site login OR admin panel) sees the admin
+    # tools; everyone else gets a plain viewer experience. Override with the
+    # ADMIN_USER env var if you want a different name.
+    ADMIN_USER = os.environ.get("ADMIN_USER", "Krish77")
+
     # Optional comma-separated admin user ids allowed to delete files
     # via the web UI (leave empty to let anyone delete — it's your call).
     ADMINS = {int(x) for x in os.environ.get("ADMINS", "").replace(",", " ").split() if x.strip()}
