@@ -5,3 +5,4 @@ python-multipart>=0.0.9
 # Fast AES (drop-in C extension; plain `tgcrypto` has no wheels for Python 3.12+).
 # Optional — Pyrogram falls back to pure-Python AES without it.
 tgcrypto2
+firebase-admin>=6.5

@@ -24,7 +24,7 @@ from pyrogram.errors import FileReferenceExpired
 from pyrogram.file_id import FileId
 
 from config import Config
-from database import Database
+from database import Database, make_database
 from streamer import TelegramStreamer
 
 logging.basicConfig(
@@ -35,7 +35,7 @@ log = logging.getLogger("tgcdn")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 START_TIME = time.time()
-db = Database(os.path.join(BASE_DIR, "files.db"))
+db = make_database(os.path.join(BASE_DIR, "files.db"), Config.FIREBASE_KEY)
 
 
 def _assemble_assets():
@@ -791,6 +791,7 @@ async def health():
     return {
         "status": "ok",
         "app": "Ani77",
+        "store": getattr(db, "backend", "sqlite"),
         "bot_online": bot is not None,
         "files": db.count(),
         "uptime_sec": round(time.time() - START_TIME, 1),

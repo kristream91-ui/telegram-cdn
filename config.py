@@ -37,6 +37,17 @@ class Config:
     # ADMIN_USER env var if you want a different name.
     ADMIN_USER = os.environ.get("ADMIN_USER", "Krish77")
 
+    # --- Cloud Firestore (keeps the library across deploys) ---
+    # Paste the whole Firebase service-account JSON as ONE line into the
+    # FIREBASE_KEY env var on Render. When it is set, the catalog, posters,
+    # banners, users and watch progress live in Firestore and survive every
+    # redeploy. When it is empty the app uses the local SQLite file instead.
+    FIREBASE_KEY = (
+        os.environ.get("FIREBASE_KEY", "")
+        or os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
+        or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "")
+    )
+
     # Optional comma-separated admin user ids allowed to delete files
     # via the web UI (leave empty to let anyone delete — it's your call).
     ADMINS = {int(x) for x in os.environ.get("ADMINS", "").replace(",", " ").split() if x.strip()}

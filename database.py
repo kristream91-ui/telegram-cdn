@@ -1,5 +1,17 @@
-"""Tiny SQLite catalog that maps short web ids -> Telegram file ids."""
+"""Catalog storage for Ani77 — short web ids -> Telegram file ids.
 
+Two interchangeable backends share one interface:
+
+  * Database          — local SQLite. Zero setup, but a free-tier redeploy
+                        wipes the file (so the library must be re-added).
+  * FirestoreDatabase — Google Cloud Firestore. The catalog, posters, banners,
+                        users and watch progress survive every deploy.
+
+make_database() returns the Firestore one when a service-account key is
+configured, and quietly falls back to SQLite when it is not.
+"""
+
+import json
 import secrets
 import sqlite3
 import threading
@@ -7,6 +19,8 @@ import time
 
 
 class Database:
+    backend = "sqlite"
+
     def __init__(self, path: str):
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
@@ -352,3 +366,287 @@ class Database:
                 "SELECT uuid, pos, dur FROM user_progress WHERE uid = ?", (uid,)
             ).fetchall()
         return {r["uuid"]: {"pos": r["pos"], "dur": r["dur"]} for r in rows}
+
+
+# --------------------------------------------------------------------- #
+#  Cloud Firestore backend                                               #
+# --------------------------------------------------------------------- #
+
+def _now() -> float:
+    return time.time()
+
+
+class FirestoreDatabase:
+    """Same interface as Database, backed by Google Cloud Firestore.
+
+    The files collection is tiny (a few hundred docs at most), so it is
+    cached in memory and filtered in Python — that keeps reads instant and
+    costs a single collection read per process instead of one per request.
+    Every write invalidates the cache.
+    """
+
+    backend = "firestore"
+
+    FILES = "files"
+    META = "series_meta"
+    USERS = "users"
+    PROGRESS = "user_progress"
+    SETTINGS = "settings"
+
+    def __init__(self, key_json: str = "", client=None):
+        self._lock = threading.Lock()
+        self._cache = None
+        if client is not None:                 # tests / advanced use
+            self._fs = client
+        else:
+            import firebase_admin
+            from firebase_admin import credentials, firestore
+            info = json.loads(key_json) if isinstance(key_json, str) else key_json
+            cred = credentials.Certificate(info)
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app(cred)
+            self._fs = firestore.client()
+
+    # ---------------------------------------------------------------- #
+
+    def _all(self):
+        if self._cache is None:
+            self._cache = [dict(d.to_dict() or {})
+                           for d in self._fs.collection(self.FILES).stream()]
+        return self._cache
+
+    def _bust(self):
+        self._cache = None
+
+    def _doc(self, uuid: str):
+        return self._fs.collection(self.FILES).document(uuid)
+
+    # ---------------------------------------------------------------- #
+    #  files
+
+    def add(self, **row) -> str:
+        uuid = secrets.token_hex(4)
+        chat_id = row.get("chat_id")
+        message_id = row.get("message_id")
+        rec = {
+            "uuid": uuid,
+            "file_id": row["file_id"],
+            "file_name": row.get("file_name") or "",
+            "file_size": int(row.get("file_size") or 0),
+            "mime_type": row.get("mime_type") or "",
+            "duration": int(row.get("duration") or 0),
+            "width": int(row.get("width") or 0),
+            "height": int(row.get("height") or 0),
+            "thumb_file_id": row.get("thumb_file_id") or "",
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": row.get("caption") or "",
+            "created_at": float(row.get("created_at") or _now()),
+            "codecs": row.get("codecs") or "",
+            "series": row.get("series"),
+            "season": int(row.get("season") or 0),
+            "episode": int(row.get("episode") or 0),
+            "source": row.get("source") or "telegram",
+            "yt_id": row.get("yt_id") or "",
+        }
+        # same de-dupe rule as the SQLite unique index (chat + message)
+        if chat_id and message_id:
+            for r in self._all():
+                if r.get("chat_id") == chat_id and r.get("message_id") == message_id:
+                    self.update_file_id(r["uuid"], rec["file_id"], rec["thumb_file_id"])
+                    return r["uuid"]
+        self._doc(uuid).set(rec)
+        self._bust()
+        return uuid
+
+    def get(self, uuid: str):
+        for r in self._all():
+            if r.get("uuid") == uuid:
+                return r
+        return None
+
+    def find_by_message(self, chat_id: int, message_id: int):
+        for r in self._all():
+            if r.get("chat_id") == chat_id and r.get("message_id") == message_id:
+                return r
+        return None
+
+    def find_by_file_id(self, file_id: str):
+        hits = [r for r in self._all() if r.get("file_id") == file_id]
+        if not hits:
+            return None
+        hits.sort(key=lambda r: r.get("created_at") or 0, reverse=True)
+        return hits[0]
+
+    def _patch(self, uuid: str, fields: dict):
+        self._doc(uuid).set(fields, merge=True)
+        self._bust()
+
+    def update_file_id(self, uuid: str, file_id: str, thumb_file_id=None):
+        fields = {"file_id": file_id}
+        if thumb_file_id:
+            fields["thumb_file_id"] = thumb_file_id
+        self._patch(uuid, fields)
+
+    def update_name(self, uuid: str, file_name: str):
+        self._patch(uuid, {"file_name": file_name})
+
+    def update_group(self, uuid: str, series, season: int = 0, episode: int = 0):
+        self._patch(uuid, {"series": series,
+                           "season": int(season or 0),
+                           "episode": int(episode or 0)})
+
+    def update_codecs(self, uuid: str, codecs: str = ""):
+        if codecs:
+            self._patch(uuid, {"codecs": codecs})
+
+    def update_meta(self, uuid: str, mime_type=None, file_size=0, duration=0):
+        row = self.get(uuid) or {}
+        fields = {}
+        if mime_type and not (row.get("mime_type") or ""):
+            fields["mime_type"] = mime_type
+        elif mime_type and (row.get("mime_type") or "") == "application/octet-stream":
+            fields["mime_type"] = mime_type
+        if file_size and not (row.get("file_size") or 0):
+            fields["file_size"] = int(file_size)
+        if duration and not (row.get("duration") or 0):
+            fields["duration"] = int(duration)
+        if fields:
+            self._patch(uuid, fields)
+
+    def list(self, q: str = "", kind: str = "", limit: int = 1000):
+        rows = list(self._all())
+        if q:
+            ql = q.lower()
+            rows = [r for r in rows
+                    if ql in (r.get("file_name") or "").lower()
+                    or ql in (r.get("caption") or "").lower()
+                    or ql in (r.get("series") or "").lower()]
+        if kind in ("video", "audio", "image", "doc"):
+            if kind == "doc":
+                rows = [r for r in rows
+                        if not str(r.get("mime_type") or "").startswith(
+                            ("video", "audio", "image"))]
+            else:
+                rows = [r for r in rows
+                        if str(r.get("mime_type") or "").startswith(kind)]
+        rows.sort(key=lambda r: r.get("created_at") or 0, reverse=True)
+        return rows[:limit]
+
+    def delete(self, uuid: str) -> bool:
+        if self.get(uuid) is None:
+            return False
+        self._doc(uuid).delete()
+        self._bust()
+        return True
+
+    def count(self) -> int:
+        return len(self._all())
+
+    # ---------------------------------------------------------------- #
+    #  series details (poster / banner / description)
+
+    def _meta_doc(self, name: str):
+        return self._fs.collection(self.META).document(name or "")
+
+    def set_series_meta(self, name: str, description: str = "", year: str = "", genre: str = ""):
+        self._meta_doc(name).set({"name": name, "description": description,
+                                  "year": year, "genre": genre}, merge=True)
+
+    def set_series_poster(self, name: str, poster: str = ""):
+        self._meta_doc(name).set({"name": name, "poster": poster}, merge=True)
+
+    def series_poster(self, name: str) -> str:
+        snap = self._meta_doc(name).get()
+        return (snap.to_dict() or {}).get("poster") or "" if snap.exists else ""
+
+    def set_series_banner(self, name: str, banner: str = ""):
+        self._meta_doc(name).set({"name": name, "banner": banner}, merge=True)
+
+    def series_banner(self, name: str) -> str:
+        snap = self._meta_doc(name).get()
+        return (snap.to_dict() or {}).get("banner") or "" if snap.exists else ""
+
+    def series_meta_all(self):
+        out = []
+        for d in self._fs.collection(self.META).stream():
+            m = dict(d.to_dict() or {})
+            out.append({
+                "name": m.get("name") or d.id,
+                "description": m.get("description") or "",
+                "year": m.get("year") or "",
+                "genre": m.get("genre") or "",
+                "has_poster": 1 if m.get("poster") else 0,
+                "has_banner": 1 if m.get("banner") else 0,
+            })
+        out.sort(key=lambda m: m["name"])
+        return out
+
+    # ---------------------------------------------------------------- #
+    #  settings
+
+    def get_setting(self, key: str, default=None):
+        snap = self._fs.collection(self.SETTINGS).document(key).get()
+        if not snap.exists:
+            return default
+        val = (snap.to_dict() or {}).get("value")
+        return default if val is None else val
+
+    def set_setting(self, key: str, value: str):
+        self._fs.collection(self.SETTINGS).document(key).set({"value": value})
+
+    # ---------------------------------------------------------------- #
+    #  users & progress
+
+    def _user_doc(self, uid: int):
+        return self._fs.collection(self.USERS).document(str(uid))
+
+    def create_user(self, username: str, pass_hash: str) -> int:
+        uid = int(self.get_setting("uid_seq", 0) or 0) + 1
+        self.set_setting("uid_seq", str(uid))
+        self._user_doc(uid).set({
+            "uid": uid, "username": username,
+            "uname": (username or "").lower(),
+            "pass_hash": pass_hash, "created_at": _now(),
+        })
+        return uid
+
+    def get_user_by_name(self, username: str):
+        want = (username or "").lower()
+        for d in self._fs.collection(self.USERS).where("uname", "==", want).limit(1).stream():
+            return dict(d.to_dict() or {})
+        return None
+
+    def get_user(self, uid: int):
+        snap = self._user_doc(uid).get()
+        return dict(snap.to_dict() or {}) if snap.exists else None
+
+    def set_progress(self, uid: int, uuid: str, pos: float, dur: float):
+        self._fs.collection(self.PROGRESS).document(f"{uid}_{uuid}").set({
+            "uid": uid, "uuid": uuid, "pos": float(pos), "dur": float(dur),
+            "updated_at": _now(),
+        })
+
+    def progress_all(self, uid: int) -> dict:
+        out = {}
+        for d in self._fs.collection(self.PROGRESS).where("uid", "==", uid).stream():
+            r = d.to_dict() or {}
+            out[r.get("uuid")] = {"pos": r.get("pos") or 0, "dur": r.get("dur") or 0}
+        return out
+
+
+# --------------------------------------------------------------------- #
+#  factory                                                               #
+# --------------------------------------------------------------------- #
+
+def make_database(sqlite_path: str, firebase_key: str = ""):
+    """Firestore when a service-account key is present, else local SQLite."""
+    key = (firebase_key or "").strip()
+    if key:
+        try:
+            store = FirestoreDatabase(key)
+            print("[store] using Cloud Firestore (data survives redeploys)")
+            return store
+        except Exception as e:                      # bad key / no network
+            print(f"[store] Firestore unavailable ({e}) — falling back to SQLite")
+    return Database(sqlite_path)
