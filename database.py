@@ -38,7 +38,8 @@ class Database:
         except sqlite3.OperationalError:
             pass
         # series grouping (Season/Episode organization) + content details
-        for col in ("series TEXT", "season INTEGER", "episode INTEGER"):
+        for col in ("series TEXT", "season INTEGER", "episode INTEGER",
+                    "source TEXT DEFAULT 'telegram'", "yt_id TEXT DEFAULT ''"):
             try:
                 self._conn.execute(f"ALTER TABLE files ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -97,8 +98,8 @@ class Database:
                 INSERT OR IGNORE INTO files (
                     uuid, file_id, file_name, file_size, mime_type, duration,
                     width, height, thumb_file_id, chat_id, message_id,
-                    caption, created_at, series, season, episode
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    caption, created_at, series, season, episode, source, yt_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     uuid,
@@ -117,6 +118,8 @@ class Database:
                     row.get("series"),
                     int(row.get("season") or 0),
                     int(row.get("episode") or 0),
+                    row.get("source") or "telegram",
+                    row.get("yt_id") or "",
                 ),
             )
             self._conn.commit()

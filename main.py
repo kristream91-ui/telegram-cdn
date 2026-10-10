@@ -7,15 +7,17 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
 import time
+import urllib.request
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pyrogram import Client, filters
 from pyrogram.errors import FileReferenceExpired
@@ -142,10 +144,11 @@ async def refresh_file_id(row) -> str:
 
 
 def _is_streamable(mime) -> bool:
-    """Playable in the web player: MP4 (native <video>) and MPEG-TS
-    (via mpegts.js). Anime files are often TS streams renamed to .mp4."""
+    """Playable in the web player: MP4 (native <video>), MPEG-TS (via
+    mpegts.js) and YouTube (official embedded player). Anime files are
+    often TS streams renamed to .mp4."""
     m = (mime or "").lower()
-    return m.startswith("video/mp4") or m == "video/mp2t"
+    return m.startswith("video/mp4") or m == "video/mp2t" or m == "video/youtube"
 
 
 def _mp4_only(row, uuid: str):
@@ -210,6 +213,11 @@ async def ensure_metadata(row, force=False):
     won't actually play in a browser."""
     if row is None or streamer is None:
         return row
+    try:
+        if (row["source"] or "telegram") == "youtube":
+            return row          # YouTube entries carry their own metadata
+    except (KeyError, IndexError):
+        pass
     mime_known = (row["mime_type"] or "").lower()
     if (not force and row["file_size"]
             and not _unknown_mime(row["mime_type"])
@@ -332,13 +340,166 @@ def row_to_json(row) -> dict:
         "mime": row["mime_type"],
         "codecs": _codecs_of(row),
         "duration": row["duration"],
-        "has_thumb": bool(row["thumb_file_id"]),
+        "has_thumb": bool(row["thumb_file_id"]) or (_row_get(row, "source") == "youtube" and bool(_row_get(row, "yt_id"))),
         "caption": row["caption"],
         "created_at": row["created_at"],
         "series": row["series"],
         "season": row["season"] or 0,
         "episode": row["episode"] or 0,
+        "source": (_row_get(row, "source") or "telegram"),
+        "yt_id": _row_get(row, "yt_id") or "",
     }
+
+
+def _row_get(row, key, default=""):
+    """Read a column that may not exist on very old DB rows."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
+
+
+# --------------------------------------------------------------------- #
+#  YouTube import (official embedded player — no re-hosting)             #
+# --------------------------------------------------------------------- #
+
+YT_VIDEO_RE = re.compile(
+    r"(?:youtu\.be/|youtube\.com/(?:watch\?[^#]*?v=|embed/|shorts/|live/))"
+    r"([A-Za-z0-9_-]{6,20})"
+)
+YT_LIST_RE = re.compile(r"[?&]list=([A-Za-z0-9_-]{6,80})")
+YT_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+         "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+
+
+def _yt_get(url: str) -> str:
+    """Fetch a YouTube page (runs in a worker thread)."""
+    req = urllib.request.Request(url, headers={
+        "User-Agent": YT_UA,
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cookie": "CONSENT=YES+cb",
+    })
+    with urllib.request.urlopen(req, timeout=25) as r:
+        return r.read().decode("utf-8", "ignore")
+
+
+def _yt_walk(obj, key):
+    """Yield every value stored under `key` anywhere in a nested dict/list."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key:
+                yield v
+            yield from _yt_walk(v, key)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _yt_walk(v, key)
+
+
+def _yt_dig(obj, key):
+    """First value found under `key` anywhere in a nested dict/list."""
+    for v in _yt_walk(obj, key):
+        return v
+    return None
+
+
+def _yt_mmss(txt) -> int:
+    """'23:41' or '1:02:03' -> seconds."""
+    try:
+        parts = [int(x) for x in str(txt).split(":")]
+    except (ValueError, TypeError):
+        return 0
+    sec = 0
+    for p in parts:
+        sec = sec * 60 + p
+    return sec
+
+
+def _yt_playlist_items(html_text: str):
+    """Parse a YouTube playlist page -> [(video_id, title, duration_badge)].
+    Works with both the classic playlistVideoRenderer and the current
+    lockupViewModel layout."""
+    m = re.search(r"var ytInitialData = (\{.*?\});</script>", html_text, re.S)
+    if not m:
+        m = re.search(r'ytInitialData"\]\s*=\s*(\{.*?\});', html_text, re.S)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+    except ValueError:
+        return []
+    items = []
+    for lk in _yt_walk(data, "lockupViewModel"):
+        vid = lk.get("contentId") or _yt_dig(lk, "videoId")
+        if not vid:
+            continue
+        title = ""
+        t = _yt_dig(lk.get("metadata") or {}, "title")
+        if isinstance(t, dict):
+            title = t.get("content") or _yt_dig(t, "text") or ""
+        if not title:
+            title = vid
+        badge = _yt_dig(lk, "thumbnailBadgeViewModel") or {}
+        dur = badge.get("text", "") if isinstance(badge, dict) else ""
+        items.append((vid, str(title).strip(), dur))
+    for r in _yt_walk(data, "playlistVideoRenderer"):
+        vid = r.get("videoId")
+        if not vid:
+            continue
+        t = r.get("title") or {}
+        title = (t.get("runs") or [{}])[0].get("text") or t.get("simpleText") or vid
+        dur = (r.get("lengthText") or {}).get("simpleText", "")
+        items.append((vid, str(title).strip(), dur))
+    # de-dupe, keep order
+    seen, out = set(), []
+    for vid, title, dur in items:
+        if vid in seen:
+            continue
+        seen.add(vid)
+        out.append((vid, title, dur))
+    return out
+
+
+def _yt_playlist_title(html_text: str) -> str:
+    m = re.search(r'"title":"([^"]{3,150})","description"', html_text)
+    return m.group(1) if m else ""
+
+
+def _yt_oembed_title(video_id: str) -> str:
+    try:
+        url = ("https://www.youtube.com/oembed?format=json&url="
+               "https://www.youtube.com/watch?v=" + video_id)
+        req = urllib.request.Request(url, headers={"User-Agent": YT_UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode("utf-8", "ignore")).get("title") or ""
+    except Exception:
+        return ""
+
+
+def _yt_clean_series(name: str) -> str:
+    """'[Hindi Dub] That Time I Got Reincarnated as a Slime' -> tidy name."""
+    n = re.sub(r"\[(?:hindi\s*dub|hindi|dub|official|4k|hd)\]", "", name, flags=re.I)
+    n = re.sub(r"\|\.*$", "", n)
+    n = re.sub(r"\s{2,}", " ", n).strip(" -–|·")
+    return n or name.strip() or "YouTube Series"
+
+
+def _yt_clean_title(title: str) -> str:
+    """'[Hindi Dub] Slime - Episode 78 (S4E06) | Muse IN' ->
+    'Slime - Episode 78 (S4E06)' (drops the tag + channel suffix)."""
+    t = re.sub(r"^\s*\[[^\]]{0,30}\]\s*", "", title or "")
+    t = re.sub(r"\s*\|\s*[^|]{0,40}\s*$", "", t)
+    return t.strip() or (title or "").strip()
+
+
+def _yt_se(title: str, fallback: int):
+    """Season/episode from an episode title — '(S1E05)' or 'Episode 12'."""
+    m = re.search(r"S(\d{1,2})\s?E(\d{1,3})", title, re.I)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r"episode\s*(\d{1,3})", title, re.I)
+    if m:
+        return 1, int(m.group(1))
+    return 1, fallback
 
 
 # --------------------------------------------------------------------- #
@@ -909,6 +1070,74 @@ async def get_banner(name: str):
     )
 
 
+@app.post("/api/youtube")
+async def import_youtube(request: Request, body: dict):
+    """Admin: import a YouTube video or a whole playlist as a series.
+    Videos stay on YouTube — the watch page uses the official embedded
+    player, so nothing is re-hosted and nothing is downloaded."""
+    _require_admin(request)
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Request body must be a JSON object")
+    url = str(body.get("url") or "").strip()
+    series = str(body.get("series") or "").strip()[:200]
+    if not url:
+        raise HTTPException(400, "Paste a YouTube video or playlist link")
+
+    list_m = YT_LIST_RE.search(url)
+    if list_m:
+        list_id = list_m.group(1)
+        try:
+            html_text = await asyncio.to_thread(
+                _yt_get, "https://www.youtube.com/playlist?list=" + list_id)
+        except Exception as e:
+            raise HTTPException(502, "Could not reach YouTube: " + str(e)[:120])
+        items = _yt_playlist_items(html_text)
+        if not items:
+            raise HTTPException(
+                502, "Could not read this playlist (it may be private, empty "
+                     "or YouTube is blocking). Paste single video links instead.")
+        if not series:
+            series = _yt_clean_series(_yt_playlist_title(html_text))
+        added = skipped = 0
+        for i, (vid, title, dur) in enumerate(items, start=1):
+            if (dur or "").strip().lower() in ("upcoming", "premieres"):
+                skipped += 1
+                continue
+            if db.find_by_file_id("yt:" + vid) is not None:
+                skipped += 1
+                continue
+            season, episode = _yt_se(title, i)
+            db.add(
+                file_id="yt:" + vid, file_name=_yt_clean_title(title)[:200], file_size=0,
+                mime_type="video/youtube", duration=_yt_mmss(dur),
+                caption="", series=series, season=season, episode=episode,
+                source="youtube", yt_id=vid,
+            )
+            added += 1
+        if not added:
+            raise HTTPException(409, "Every video in this playlist is already added")
+        return {"ok": True, "added": added, "skipped": skipped, "series": series}
+
+    vid_m = YT_VIDEO_RE.search(url)
+    if not vid_m:
+        raise HTTPException(400, "That is not a YouTube link")
+    video_id = vid_m.group(1)
+    if db.find_by_file_id("yt:" + video_id) is not None:
+        raise HTTPException(409, "This video is already in the library")
+    title = await asyncio.to_thread(_yt_oembed_title, video_id)
+    if not title:
+        title = series or video_id
+    title = _yt_clean_title(title)
+    season, episode = _yt_se(title, 1)
+    db.add(
+        file_id="yt:" + video_id, file_name=title[:200], file_size=0,
+        mime_type="video/youtube", duration=0, caption="",
+        series=series or None, season=season, episode=episode,
+        source="youtube", yt_id=video_id,
+    )
+    return {"ok": True, "added": 1, "skipped": 0, "series": series or title}
+
+
 @app.patch("/api/series/{name}")
 async def update_series(name: str, request: Request, body: dict):
     """Admin: fill content details (description / year / genre) for a series."""
@@ -961,6 +1190,8 @@ async def stream_file(uuid: str, request: Request):
     row = db.get(uuid)
     if not row:
         raise HTTPException(404, "File not found")
+    if (_row_get(row, "source") or "telegram") == "youtube":
+        raise HTTPException(400, "YouTube videos play in the embedded player")
     return await stream_response(row, request)
 
 
@@ -969,13 +1200,23 @@ async def download_file(uuid: str, request: Request):
     row = db.get(uuid)
     if not row:
         raise HTTPException(404, "File not found")
+    if (_row_get(row, "source") or "telegram") == "youtube":
+        yt_id = _row_get(row, "yt_id")
+        return RedirectResponse("https://www.youtube.com/watch?v=" + yt_id)
     return await stream_response(row, request, as_attachment=True)
 
 
 @app.get("/thumb/{uuid}")
 async def thumb_file(uuid: str, request: Request):
     row = db.get(uuid)
-    if not row or not row["thumb_file_id"]:
+    if not row:
+        raise HTTPException(404, "No thumbnail")
+    if (_row_get(row, "source") or "telegram") == "youtube":
+        yt_id = _row_get(row, "yt_id")
+        if not yt_id:
+            raise HTTPException(404, "No thumbnail")
+        return RedirectResponse("https://i.ytimg.com/vi/" + yt_id + "/hqdefault.jpg")
+    if not row["thumb_file_id"]:
         raise HTTPException(404, "No thumbnail")
     return await stream_response({**row, "file_id": row["thumb_file_id"],
                                   "mime_type": "image/jpeg"}, request)
