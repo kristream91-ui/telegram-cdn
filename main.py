@@ -770,7 +770,19 @@ async def unhandled_error(request: Request, exc: Exception):
 
 @app.get("/")
 async def home():
-    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+    """Serve the app shell, stamping the static asset URLs with a build id
+    so phones always pick up the newest app.js / style.css after a deploy
+    (without it, mobile browsers happily serve a cached copy for days)."""
+    path = os.path.join(BASE_DIR, "static", "index.html")
+    try:
+        html = open(path, encoding="utf-8").read()
+        stamp = int(max(
+            os.path.getmtime(os.path.join(BASE_DIR, "static", f))
+            for f in ("app.js", "style.css")
+        ))
+        return Response(html.replace("__V__", str(stamp)), media_type="text/html")
+    except Exception:
+        return FileResponse(path)
 
 
 @app.get("/api/health")
