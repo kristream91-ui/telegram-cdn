@@ -541,6 +541,16 @@ def _current_user(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot, streamer
+    # One-time data wipe, armed by committing a WIPE_ON_START file. It runs
+    # exactly once (a marker is written afterwards) and the flag is removed
+    # again in the following commit.
+    try:
+        if os.path.exists(os.path.join(BASE_DIR, "WIPE_ON_START")) \
+                and not db.get_setting("startup_wipe_done"):
+            log.warning("STARTUP WIPE: %s", db.wipe())
+            db.set_setting("startup_wipe_done", "1")
+    except Exception as e:
+        log.warning("Startup wipe skipped: %s", e)
     # one-time: auto-group existing files from their filenames (SxxExx)
     try:
         for r in db.list():
