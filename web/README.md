@@ -39,7 +39,7 @@ NEXT_PUBLIC_API_BASE=https://telegram-cdn.onrender.com
 That's it — Vercel gives you a URL like `https://ani77.vercel.app`.
 The Python API already allows cross-origin calls (CORS), so no extra setup.
 
-## What is done so far (stage 1)
+## What is done so far
 
 - [x] Project scaffold: Next.js App Router + TypeScript + Tailwind
 - [x] Design system ported 1:1 (colours, fonts, buttons, pills, animations)
@@ -47,12 +47,14 @@ The Python API already allows cross-origin calls (CORS), so no extra setup.
 - [x] Shell: top nav with search, slide-in drawer, mobile bottom tab bar
 - [x] Home page: rotating banner hero, Continue Watching, Recently Added,
       Series grid, Movies grid, search across series / genre / year / episode
+- [x] `/watch/[uuid]` — custom player: MP4/WebM + `.ts` via mpegts.js, YouTube
+      via the IFrame API, resume from saved position, 6-second auto-next
+      overlay, speed (0.5–2×), volume/mute, seek with buffered track,
+      ±10s, fullscreen, keyboard shortcuts, progress saved every 5s
+- [x] Episode list under the player (thumbnails + per-episode progress)
 
 ## Still to come (next stages)
-
-- [ ] `/watch/[uuid]` — custom player (MP4 + TS via mpegts.js, YouTube embed)
-      with resume, auto-next, speed/volume/PiP/fullscreen
-- [ ] `/series/[name]` — season/episode list with thumbnails
+- [ ] `/series/[name]` — series page: banner backdrop, season picker, episode grid
 - [ ] `/schedule` and `/settings` (downloads) pages
 - [ ] Auth (login / signup) + synced watch progress
 - [ ] `/admin` — files, add file, YouTube import, episode manager, series editor
