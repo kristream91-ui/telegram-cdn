@@ -69,7 +69,7 @@ export default function Hero({ slides, featured, metaOf, progressOf }: {
             <div className="absolute bottom-[-28px] right-[4vw] flex gap-2">
               {slides.map((sl, i) => (
                 <button key={sl.name} aria-label={`Banner ${i + 1}`} onClick={() => setCur(i)}
-                  className={`h-1 rounded transition-all ${i === cur ? "w-10 bg-gold" : "w-[26px] bg-white/25"}`} />
+                  className={`h-1 rounded transition-all ${i === cur ? "w-10 bg-blue-2" : "w-[26px] bg-white/25"}`} />
               ))}
             </div>
           )}
@@ -88,13 +88,13 @@ export default function Hero({ slides, featured, metaOf, progressOf }: {
             className="mx-auto w-[124px] animate-floaty drop-shadow-[0_0_40px_rgba(0,174,239,.55)] md:w-[190px]" />
           <h1 className="mt-4 font-display text-[clamp(28px,8.5vw,64px)] tracking-wide">
             Stream Hindi Dub Anime
-            <span className="ml-2.5 inline-block rounded-md bg-gradient-to-br from-[#f5a300] to-gold px-2.5 py-1 align-middle
+            <span className="ml-2.5 inline-block rounded-md bg-logo-grad px-2.5 py-1 align-middle
                              text-[11px] font-bold tracking-[2px] text-[#241800]">FREE</span>
           </h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[13.5px] leading-relaxed text-[#d3ddec]">
             A hand-picked Hindi dub anime library. New episodes are added regularly — check back soon!
           </p>
-          <Link href="/schedule" className="btn-gold mt-6">
+          <Link href="/schedule" className="btn-primary mt-6">
             <Icon name="calendar" size={15} /> See the schedule
           </Link>
         </div>

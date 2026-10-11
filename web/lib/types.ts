@@ -11,8 +11,7 @@ export type MediaFile = {
   series: string | null;
   season: number;
   episode: number;
-  source: "telegram" | "youtube";
-  yt_id: string;
+  source: "telegram";
 };
 
 export type SeriesMeta = {

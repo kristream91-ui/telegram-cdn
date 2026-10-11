@@ -8,50 +8,76 @@
     @apply bg-bg text-ink font-sans antialiased;
     min-height: 100vh;
   }
-  /* subtle brand glow at the top, like the logo's ring */
+  /* the logo's blue aura bleeding down from the top of the page */
   body::before {
     content: "";
-    position: fixed; inset: 0 0 auto 0; height: 380px;
-    background: radial-gradient(60% 100% at 50% -20%, rgba(0,174,239,.14), transparent 70%);
+    position: fixed; inset: 0 0 auto 0; height: 420px;
+    background:
+      radial-gradient(58% 100% at 50% -18%, rgba(12,132,252,.20), transparent 72%),
+      radial-gradient(40% 80% at 85% -10%, rgba(53,162,255,.12), transparent 70%);
     pointer-events: none; z-index: 0;
-    animation: glowDrift 16s ease-in-out infinite alternate;
+    animation: pulseGlow 9s ease-in-out infinite;
   }
-  ::selection { background: rgba(0,174,239,.35); }
+  ::selection { background: rgba(12,132,252,.38); }
   ::-webkit-scrollbar { height: 8px; width: 10px; }
-  ::-webkit-scrollbar-track { background: #050a14; }
-  ::-webkit-scrollbar-thumb { background: #16233c; border-radius: 6px; }
-  ::-webkit-scrollbar-thumb:hover { background: #1e3050; }
+  ::-webkit-scrollbar-track { background: #04091a; }
+  ::-webkit-scrollbar-thumb { background: #14264a; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #1d3768; }
+  input, button, textarea { font: inherit; }
 }
 
-@keyframes glowDrift { from { opacity: .65 } to { opacity: 1 } }
+@keyframes pulseGlow { 0%,100% { opacity:.6 } 50% { opacity:1 } }
 
 @layer components {
+  /* ---- surfaces ---- */
+  .glass {
+    @apply border border-line bg-panel/80 backdrop-blur-xl;
+  }
+  .card-surface {
+    @apply rounded-2xl border border-line bg-panel-grad shadow-card;
+  }
+  .field {
+    @apply w-full rounded-xl border border-line bg-panel2/70 px-4 py-3 text-[14px] text-ink
+           outline-none transition placeholder:text-[#5d7096]
+           focus:border-blue/60 focus:bg-panel2 focus:shadow-[0_0_0_3px_rgba(12,132,252,.15)];
+  }
+
+  /* ---- buttons ---- */
   .btn {
-    @apply inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13.5px] font-semibold
-           whitespace-nowrap transition duration-150 active:scale-[.97];
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13.5px]
+           font-semibold whitespace-nowrap transition duration-150 active:scale-[.97]
+           disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn text-[#04121c] shadow-[0_4px_18px_rgba(0,174,239,.35)]
-           bg-gradient-to-br from-blue to-blue-2 hover:-translate-y-px
-           hover:shadow-[0_6px_26px_rgba(0,174,239,.55)];
-  }
-  .btn-gold {
-    @apply btn text-[#241800] shadow-[0_4px_18px_rgba(255,184,0,.3)]
-           bg-gradient-to-br from-[#f5a300] to-gold hover:-translate-y-px
-           hover:shadow-[0_6px_24px_rgba(255,184,0,.45)];
+    @apply btn bg-logo-grad text-white shadow-[0_6px_22px_rgba(12,132,252,.38)]
+           hover:-translate-y-px hover:shadow-[0_10px_30px_rgba(12,132,252,.55)];
   }
   .btn-ghost {
-    @apply btn border border-line bg-panel2/75 text-ink
+    @apply btn border border-line bg-panel2/70 text-ink
            hover:border-blue/50 hover:bg-panel2;
   }
-  .icon-btn {
-    @apply flex h-10 w-10 flex-none items-center justify-center rounded-[10px]
-           border border-line bg-panel2/75 text-ink transition
-           hover:border-blue/50 hover:bg-panel2 active:scale-95;
+  .btn-quiet {
+    @apply btn bg-transparent text-muted hover:bg-panel2/70 hover:text-ink;
   }
+  .icon-btn {
+    @apply flex h-10 w-10 flex-none items-center justify-center rounded-xl border border-line
+           bg-panel2/60 text-ink transition hover:border-blue/50 hover:bg-panel2 active:scale-95;
+  }
+
+  /* ---- bits ---- */
   .pill {
-    @apply rounded-full border border-line bg-panel2/80 px-2 py-[2px] text-[10px]
-           font-semibold tracking-wide text-[#aebadb];
+    @apply inline-flex items-center gap-1 rounded-full border border-line bg-panel2/70
+           px-2.5 py-1 text-[11px] font-semibold tracking-wide text-[#a9bde0];
+  }
+  .chip {
+    @apply rounded-full border border-line bg-panel2/60 px-3.5 py-1.5 text-[12.5px]
+           font-semibold text-muted transition hover:border-blue/50 hover:text-ink;
+  }
+  .chip-on {
+    @apply border-transparent bg-logo-grad text-white shadow-[0_4px_16px_rgba(12,132,252,.35)];
+  }
+  .section-title {
+    @apply flex items-baseline gap-3 font-display text-[22px] tracking-[1.5px];
   }
   .h-scroll { @apply flex gap-3.5 overflow-x-auto overflow-y-visible px-[4vw] py-1.5 pb-[18px]; scrollbar-width: none; }
   .h-scroll::-webkit-scrollbar { display: none; }

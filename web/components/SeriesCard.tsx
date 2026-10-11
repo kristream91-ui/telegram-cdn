@@ -32,8 +32,8 @@ export default function SeriesCard({ s }: { s: SeriesGroup }) {
             <Icon name="play" size={15} />
           </span>
         </span>
-        <span className="absolute bottom-2 right-2 rounded-md border border-gold/40 bg-[rgba(5,10,20,.85)]
-                         px-2 py-0.5 text-[11px] font-semibold text-gold">
+        <span className="absolute bottom-2 right-2 rounded-md border border-blue/40 bg-[rgba(5,10,20,.85)]
+                         px-2 py-0.5 text-[11px] font-semibold text-accent">
           {badge} · {s.eps.length} EP
         </span>
       </div>

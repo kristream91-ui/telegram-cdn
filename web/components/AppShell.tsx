@@ -15,7 +15,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <SearchCtx.Provider value={{ query, setQuery }}>
-      <Nav query={query} setQuery={setQuery} onMenu={() => setDrawer(true)} />
+      <Nav onMenu={() => setDrawer(true)} />
       <Drawer open={drawer} onClose={() => setDrawer(false)} />
       <main className="relative z-[1] pb-[calc(96px+env(safe-area-inset-bottom,0px))] pt-[68px] md:pb-16">{children}</main>
       <TabBar />

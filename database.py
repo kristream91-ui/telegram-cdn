@@ -299,6 +299,20 @@ class Database:
             self._conn.commit()
         return cur.rowcount > 0
 
+    def wipe(self) -> dict:
+        """Delete every file, series detail, user, progress row and setting."""
+        counts = {}
+        with self._lock:
+            for table in ("files", "series_meta", "users", "user_progress", "settings"):
+                try:
+                    n = self._conn.execute("SELECT COUNT(*) FROM " + table).fetchone()[0]
+                    self._conn.execute("DELETE FROM " + table)
+                    counts[table] = int(n)
+                except sqlite3.OperationalError:
+                    counts[table] = 0
+            self._conn.commit()
+        return counts
+
     def count(self) -> int:
         with self._lock:
             (n,) = self._conn.execute("SELECT COUNT(*) FROM files").fetchone()
@@ -638,6 +652,21 @@ class FirestoreDatabase:
 # --------------------------------------------------------------------- #
 #  factory                                                               #
 # --------------------------------------------------------------------- #
+
+    def wipe(self) -> dict:
+        """Delete every document in every collection this app owns."""
+        counts = {}
+        for label, coll in (("files", self.FILES), ("series_meta", self.META),
+                            ("users", self.USERS), ("user_progress", self.PROGRESS),
+                            ("settings", self.SETTINGS)):
+            n = 0
+            for doc in self._fs.collection(coll).stream():
+                doc.reference.delete()
+                n += 1
+            counts[label] = n
+        self._bust()
+        return counts
+
 
 def make_database(sqlite_path: str, firebase_key: str = ""):
     """Firestore when a service-account key is present, else local SQLite."""

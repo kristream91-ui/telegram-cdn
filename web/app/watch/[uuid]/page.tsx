@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import Player from "@/components/Player";
 import Icon from "@/components/Icon";
-import { downloadUrl, getFile, getFiles, thumbUrl } from "@/lib/api";
+import { downloadUrl, getFile, getFiles, streamUrl, thumbUrl } from "@/lib/api";
 import { useProgress, useUser } from "@/lib/useProgress";
 import { fmtSize } from "@/lib/format";
 import type { MediaFile } from "@/lib/types";
@@ -21,26 +21,21 @@ export default function WatchPage() {
   const [all, setAll] = useState<MediaFile[]>([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!uuid) return;
     let alive = true;
     setLoading(true);
     Promise.all([getFile(uuid), getFiles()])
-      .then(([f, list]) => {
-        if (!alive) return;
-        setFile(f);
-        setAll(list);
-        setLoading(false);
-      })
+      .then(([f, list]) => { if (alive) { setFile(f); setAll(list); setLoading(false); } })
       .catch(e => { if (alive) { setErr((e as Error).message); setLoading(false); } });
     return () => { alive = false; };
   }, [uuid]);
 
   const siblings = useMemo(() => {
     if (!file?.series) return [];
-    return all
-      .filter(f => f.series === file.series)
+    return all.filter(f => f.series === file.series)
       .sort((a, b) => (a.season - b.season) || (a.episode - b.episode));
   }, [file, all]);
 
@@ -49,9 +44,16 @@ export default function WatchPage() {
   const prev = idx > 0 ? siblings[idx - 1] : undefined;
   const startPos = map[uuid]?.pos || 0;
 
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(streamUrl(uuid));
+      setCopied(true); setTimeout(() => setCopied(false), 1800);
+    } catch { /* ignore */ }
+  };
+
   if (loading) {
     return (
-      <div className="mx-auto max-w-[1240px] px-[4vw] py-24 text-center text-muted">
+      <div className="mx-auto max-w-[1400px] px-[4vw] py-24 text-center text-muted">
         <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-blue-2" />
         <p className="mt-4 text-[13.5px]">Loading…</p>
       </div>
@@ -60,89 +62,98 @@ export default function WatchPage() {
 
   if (err || !file) {
     return (
-      <div className="mx-auto max-w-[560px] px-[4vw] py-24 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-line bg-panel2 text-gold">
+      <div className="mx-auto max-w-[520px] px-[4vw] py-24 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-line bg-panel2 text-accent">
           <Icon name="alert" size={32} />
         </div>
         <h2 className="font-display text-3xl tracking-wide">Video not found</h2>
-        <p className="mt-2 text-[13.5px] text-muted">{err || "This episode may have been removed."}</p>
+        <p className="mt-2 text-[13.5px] text-muted">{err || "This file may have been removed."}</p>
         <Link className="btn-ghost mt-5" href="/"><Icon name="arrowL" size={15} /> Back home</Link>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] px-[4vw] pb-10">
-      <div className="mb-3 flex items-center gap-2 text-[13px] text-muted">
+    <div className="mx-auto max-w-[1400px] px-[4vw] pb-10">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-muted">
         <Link href="/" className="flex items-center gap-1.5 hover:text-ink"><Icon name="arrowL" size={14} /> Home</Link>
         {file.series && (
           <>
-            <span>/</span>
+            <span className="opacity-50">/</span>
             <Link href={`/series/${encodeURIComponent(file.series)}`} className="hover:text-ink">{file.series}</Link>
           </>
         )}
       </div>
 
-      <Player
-        file={file}
-        next={next}
-        startPos={startPos}
-        onSave={save}
-        onEnded={() => { if (next) location.href = `/watch/${next.uuid}`; }}
-      />
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div>
+          <Player file={file} next={next} startPos={startPos} onSave={save}
+            onEnded={() => { if (next) location.href = `/watch/${next.uuid}`; }} />
 
-      <h1 className="mt-4 font-display text-[clamp(20px,5vw,34px)] leading-tight tracking-wide">
-        {clean(file.name)}
-      </h1>
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12.5px] text-muted">
-        {file.series && <span className="pill text-gold">{file.series}</span>}
-        {file.episode ? <span className="pill">S{file.season || 1} · E{file.episode}</span> : null}
-        <span className="pill">{file.source === "youtube" ? "YouTube" : file.mime.includes("mp2t") ? "TS stream" : "Telegram"}</span>
-        <span>{fmtSize(file.size)}</span>
-      </div>
-      {file.caption && <p className="mt-3 max-w-[820px] text-[13.5px] leading-relaxed text-[#c3cfe2]">{file.caption}</p>}
+          <h1 className="mt-4 font-display text-[clamp(22px,5vw,36px)] leading-tight tracking-wide">
+            {clean(file.name)}
+          </h1>
 
-      <div className="mt-4 flex flex-wrap gap-2.5">
-        <a className="btn-ghost" href={downloadUrl(file.uuid)} target="_blank" rel="noreferrer">
-          <Icon name="download" size={15} /> {file.source === "youtube" ? "Open on YouTube" : "Download"}
-        </a>
-        {prev && <Link className="btn-ghost" href={`/watch/${prev.uuid}`}><Icon name="arrowL" size={15} /> Previous</Link>}
-        {next && <Link className="btn-primary" href={`/watch/${next.uuid}`}><Icon name="next" size={15} /> Next episode</Link>}
-      </div>
-
-      {siblings.length > 1 && (
-        <section className="mt-8">
-          <h2 className="mb-3 flex items-baseline gap-3 font-display text-[20px] tracking-[1.5px]">
-            Episodes <span className="font-sans text-xs font-normal text-muted">{siblings.length}</span>
-          </h2>
-          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-            {siblings.map((s, i) => {
-              const here = s.uuid === uuid;
-              const p = map[s.uuid];
-              const pct = p && p.dur ? Math.min(100, (p.pos / p.dur) * 100) : 0;
-              return (
-                <Link key={s.uuid} href={`/watch/${s.uuid}`}
-                  className={`flex items-center gap-3 rounded-xl border p-2.5 transition
-                    ${here ? "border-blue/60 bg-panel2" : "border-line bg-panel hover:border-blue/40 hover:bg-panel2"}`}>
-                  <span className="relative aspect-video w-[104px] flex-none overflow-hidden rounded-lg bg-panel2">
-                    {s.has_thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={thumbUrl(s.uuid)} alt="" loading="lazy" className="h-full w-full object-cover" />
-                    ) : null}
-                    {pct > 0 && <i className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-blue to-blue-2" style={{ width: pct + "%" }} />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold">{clean(s.name)}</span>
-                    <span className="mt-0.5 block text-[11.5px] text-muted">
-                      {s.episode ? `E${s.episode}` : `#${i + 1}`}{here ? " · now playing" : ""}
-                    </span>
-                  </span>
-                </Link>
-              );
-            })}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {file.series && <span className="pill text-accent">{file.series}</span>}
+            {file.episode ? <span className="pill">S{file.season || 1} · E{file.episode}</span> : null}
+            <span className="pill">{/mp2t/i.test(file.mime || "") || /\.ts$/i.test(file.name) ? "TS stream" : "Telegram"}</span>
+            {file.size ? <span className="text-[12px] text-muted">{fmtSize(file.size)}</span> : null}
+            {file.codecs ? <span className="text-[12px] text-muted">· {file.codecs}</span> : null}
           </div>
-        </section>
-      )}
+
+          {file.caption && (
+            <p className="mt-3 max-w-[860px] text-[13.5px] leading-relaxed text-[#c6d4ea]">{file.caption}</p>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2.5">
+            <a className="btn-primary" href={downloadUrl(file.uuid)} target="_blank" rel="noreferrer">
+              <Icon name="download" size={15} /> Download
+            </a>
+            <button className="btn-ghost" onClick={copyLink}>
+              <Icon name={copied ? "check" : "link"} size={15} /> {copied ? "Copied" : "Copy link"}
+            </button>
+            {prev && <Link className="btn-ghost" href={`/watch/${prev.uuid}`}><Icon name="arrowL" size={15} /> Previous</Link>}
+            {next && <Link className="btn-ghost" href={`/watch/${next.uuid}`}><Icon name="next" size={15} /> Next</Link>}
+          </div>
+        </div>
+
+        {siblings.length > 1 && (
+          <aside className="lg:pt-1">
+            <h2 className="section-title mb-3">
+              Episodes <span className="font-sans text-xs font-normal text-muted">{siblings.length}</span>
+            </h2>
+            <div className="grid max-h-[560px] gap-2 overflow-y-auto pr-1">
+              {siblings.map((s, i) => {
+                const here = s.uuid === uuid;
+                const p = map[s.uuid];
+                const pct = p && p.dur ? Math.min(100, (p.pos / p.dur) * 100) : 0;
+                return (
+                  <Link key={s.uuid} href={`/watch/${s.uuid}`}
+                    className={`flex items-center gap-3 rounded-2xl border p-2 transition
+                      ${here ? "border-blue/60 bg-panel2" : "border-line bg-panel/60 hover:border-blue/40 hover:bg-panel2/70"}`}>
+                    <span className="relative aspect-video w-[96px] flex-none overflow-hidden rounded-xl bg-panel2">
+                      {s.has_thumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={thumbUrl(s.uuid)} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      ) : null}
+                      {pct > 0 && (
+                        <i className="absolute inset-x-0 bottom-0 h-1 bg-logo-grad" style={{ width: pct + "%" }} />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold">{clean(s.name)}</span>
+                      <span className="mt-0.5 block text-[11.5px] text-muted">
+                        {s.episode ? `E${s.episode}` : `#${i + 1}`}{here ? " · now playing" : ""}
+                      </span>
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
