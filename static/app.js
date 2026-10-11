@@ -362,7 +362,30 @@ function clockText(s) {
 
 const RATES = [1, 1.25, 1.5, 2, 0.5];
 
-function setupPlayerUI(video, uuid) {
+/* Only ONE player is on screen at a time, and the document-level listeners
+   are installed once — otherwise every episode you open would add another
+   keydown handler and Space/F would fire twice. */
+let ACTIVE_PLAYER = { video: null, key: null, fs: null };
+function registerActivePlayer(part) {
+  if (part.video) ACTIVE_PLAYER.video = part.video;
+  if (part.key) ACTIVE_PLAYER.key = part.key;
+  if (part.fs) ACTIVE_PLAYER.fs = part.fs;
+}
+function installPlayerGlobals() {
+  if (window.__aniPlayerGlobals) return;
+  window.__aniPlayerGlobals = true;
+  document.addEventListener("keydown", e => {
+    const v = ACTIVE_PLAYER.video;
+    if (!v || !document.body.contains(v) || !ACTIVE_PLAYER.key) return;
+    ACTIVE_PLAYER.key(e);
+  });
+  const onFs = () => { if (ACTIVE_PLAYER.fs) ACTIVE_PLAYER.fs(); };
+  document.addEventListener("fullscreenchange", onFs);
+  document.addEventListener("webkitfullscreenchange", onFs);
+}
+installPlayerGlobals();
+
+function setupPlayerUI(video, uuid, title) {
   const wrap = video.closest(".player-wrap");
   if (!wrap || wrap.querySelector(".pv-ui")) return;
 
@@ -405,9 +428,7 @@ function setupPlayerUI(video, uuid) {
   const btnFull = $p("#pvFull"), btnPip = $p("#pvPip"), spin = $p("#pvSpin");
   const vol = $p("#pvVol");
 
-  const title = (typeof displayName === "function")
-    ? displayName({ name: document.title }) : "";
-  $p("#pvTitle").textContent = "";
+  $p("#pvTitle").textContent = title || "";
 
   let hideTimer = null, lastTap = 0, tapSide = 0;
 
@@ -564,8 +585,7 @@ function setupPlayerUI(video, uuid) {
     btnFull.innerHTML = icon(on ? "compress" : "expand", 19);
     wrap.classList.toggle("pv-full", on);
   };
-  document.addEventListener("fullscreenchange", onFsChange);
-  document.addEventListener("webkitfullscreenchange", onFsChange);
+  registerActivePlayer({ video: video, fs: onFsChange });
 
   // ---- buffering spinner
   video.addEventListener("waiting", () => spin.classList.add("on"));
@@ -611,11 +631,53 @@ function setupPlayerUI(video, uuid) {
     else jump(act, act > 0 ? "r" : "l");
     showUI();
   };
-  document.addEventListener("keydown", keyHandler);
+  registerActivePlayer({ video: video, key: keyHandler });
   video.addEventListener("webkitbeginfullscreen", () => wrap.classList.add("pv-full"));
   video.addEventListener("webkitendfullscreen", () => wrap.classList.remove("pv-full"));
 
   syncPlay(); syncMute(); syncTime(); showUI();
+}
+
+/* When an episode finishes, offer the next one with a short countdown. */
+function armNextEpisode(video, nextEp) {
+  video.addEventListener("ended", () => {
+    showNextEpisodeOverlay(video.closest(".player-wrap"), nextEp);
+  });
+}
+
+function showNextEpisodeOverlay(wrap, nextEp) {
+  if (!wrap || !nextEp) return;
+  let timer = null, left = 0;
+  const clear = () => { if (timer) clearInterval(timer); timer = null; };
+  const overlay = () => wrap.querySelector("#pvNext");
+
+  {
+    if (overlay()) return;
+    left = 6;
+    wrap.insertAdjacentHTML("beforeend", `
+      <div class="pv-next" id="pvNext">
+        <div class="pv-next-card">
+          <span class="pv-next-lbl">Up next</span>
+          <b>${esc(displayName(nextEp))}</b>
+          <div class="pv-next-row">
+            <button class="btn primary" id="pvNextGo">${icon("play", 15)} Play now</button>
+            <button class="btn ghost" id="pvNextStay">Cancel <span id="pvNextIn">(6)</span></button>
+          </div>
+        </div>
+      </div>`);
+    wrap.querySelector("#pvNextGo").addEventListener("click", () => {
+      clear(); location.hash = "#/watch/" + nextEp.uuid;
+    });
+    wrap.querySelector("#pvNextStay").addEventListener("click", () => {
+      clear(); const o = overlay(); if (o) o.remove();
+    });
+    timer = setInterval(() => {
+      left -= 1;
+      const el = wrap.querySelector("#pvNextIn");
+      if (el) el.textContent = "(" + Math.max(left, 0) + ")";
+      if (left <= 0) { clear(); location.hash = "#/watch/" + nextEp.uuid; }
+    }, 1000);
+  }
 }
 
 /* YouTube uses the official IFrame API so Continue Watching works there too. */
@@ -635,7 +697,7 @@ function loadYouTubeAPI() {
   return YT_API_READY;
 }
 
-async function setupYouTubePlayer(host, videoId, uuid) {
+async function setupYouTubePlayer(host, videoId, uuid, nextEp) {
   if (!host) return;
   const ok = await loadYouTubeAPI();
   if (!ok || !(window.YT && window.YT.Player)) {          // fallback: plain embed
@@ -664,6 +726,11 @@ async function setupYouTubePlayer(host, videoId, uuid) {
           } catch { /* player gone */ }
         }, 5000);
       },
+      onStateChange: ev => {
+        if (ev.data === 0 && nextEp) {          // 0 = ended
+          showNextEpisodeOverlay((host.closest && host.closest(".player-wrap")) || host.parentNode, nextEp);
+        }
+      },
       onError: () => toast("This video can't play here — tap 'Open on YouTube'"),
     },
   });
@@ -684,9 +751,23 @@ function skeletonHome() {
 
 function renderHome() {
   const q = $("#search").value.trim().toLowerCase();
+  const allSeries = buildSeries(FILES);
+  const metaOf = n => SERIES.find(s => s.name === n) || {};
+  const seriesHit = s => {
+    if (!q) return true;
+    const m = metaOf(s.name);
+    return (s.name || "").toLowerCase().includes(q)
+      || (m.genre || "").toLowerCase().includes(q)
+      || (m.year || "").toLowerCase().includes(q)
+      || (m.description || "").toLowerCase().includes(q);
+  };
   const files = q
-    ? FILES.filter(f => f.name.toLowerCase().includes(q) || (f.caption || "").toLowerCase().includes(q))
+    ? FILES.filter(f => (f.name || "").toLowerCase().includes(q)
+        || (f.caption || "").toLowerCase().includes(q)
+        || (f.series || "").toLowerCase().includes(q)
+        || (f.series && seriesHit({ name: f.series })))
     : FILES;
+  const seriesMatches = q ? allSeries.filter(seriesHit) : allSeries;
 
   if (LOAD_FAILED) {
     app.innerHTML = errorBoxHTML("alert", "Couldn't reach the server",
@@ -701,27 +782,28 @@ function renderHome() {
     return;
   }
 
-  if (!files.length) {
-    app.innerHTML = heroHTML(FILES[0]) + `
-      <div class="empty"><div class="icon">${icon("search", 46)}</div><h3>No results</h3>
-      <p>Nothing matches "${esc(q)}".</p></div>`;
+  if (q && !files.length && !seriesMatches.length) {
+    app.innerHTML = `<div class="empty"><div class="icon">${icon("search", 46)}</div>
+      <h3>No results</h3><p>Nothing matches "${esc(q)}" — try a series name, genre or year.</p>
+      <button class="btn ghost" id="clearSearch">Clear search</button></div>`;
+    const cs = $("#clearSearch");
+    if (cs) cs.addEventListener("click", () => { $("#search").value = ""; renderHome(); });
     return;
   }
 
-  const watching = FILES.filter(f => started(f.uuid));
+  const watching = q ? [] : FILES.filter(f => started(f.uuid));
   const recent = files.slice(0, 12);
   const hero = files.find(f => f.has_thumb) || files[0];
-  const series = buildSeries(files);
-  const heroSlides = series.filter(s => s.banner);
+  const heroSlides = seriesMatches.filter(s => s.banner);
   const standalone = files.filter(f => !f.series);
 
-  app.innerHTML = (heroSlides.length ? heroSlidesHTML(heroSlides) : heroHTML(hero))
+  app.innerHTML = (q ? "" : (heroSlides.length ? heroSlidesHTML(heroSlides) : heroHTML(hero)))
     + rowHTML("Continue Watching", watching, "cw")
-    + rowHTML(q ? `Results for "${esc(q)}"` : "Recently Added", recent, "recent")
-    + (series.length ? `
+    + rowHTML(q ? `Episodes matching "${esc(q)}"` : "Recently Added", recent, "recent")
+    + (seriesMatches.length ? `
       <section class="row-section">
-        <h2>Series <span class="count">${series.length}</span></h2>
-        <div class="grid">${series.map(seriesCardHTML).join("")}</div>
+        <h2>${q ? "Series matching" : "Series"} <span class="count">${seriesMatches.length}</span></h2>
+        <div class="grid">${seriesMatches.map(seriesCardHTML).join("")}</div>
       </section>` : "")
     + (standalone.length ? `
       <section class="row-section">
@@ -792,6 +874,8 @@ async function renderSeries(name) {
       <h2 style="padding-left:0;">Season ${sn} <span class="count">${eps.filter(e => (e.season || 1) === sn).length} eps</span></h2>
       <div class="ep-list">${eps.filter(e => (e.season || 1) === sn).map(e => `
         <a class="ep-row" href="#/watch/${e.uuid}">
+          ${e.has_thumb ? `<span class="ep-thumb"><img src="/thumb/${e.uuid}" loading="lazy" alt=""
+            onerror="this.closest('.ep-thumb').remove()"></span>` : ""}
           <span class="ep-num">E${e.episode || "?"}</span>
           <span class="ep-name">${esc(displayName(e))}</span>
           <span class="ep-dur">${fmtDur(e.duration)}${codecTag(e)}</span>
@@ -961,10 +1045,11 @@ async function renderWatch(uuid) {
   }
 
   if (p && !isYT) {
-    try { setupPlayerUI(p, uuid); }
+    try { setupPlayerUI(p, uuid, displayName(f)); }
     catch (err) { p.setAttribute("controls", "controls"); }   // never leave them stuck
+    if (nextEp) armNextEpisode(p, nextEp);
   }
-  if (isYT) setupYouTubePlayer($("#ytPlayer"), f.yt_id, uuid);
+  if (isYT) setupYouTubePlayer($("#ytPlayer"), f.yt_id, uuid, nextEp);
 
   $("#copyBtn").addEventListener("click", async () => {
     const link = location.origin + "/#/watch/" + uuid;
@@ -1073,12 +1158,10 @@ function adminContentHTML() {
 
 /* ---------------- files tab (file rows) ---------------- */
 
-function adminFilesHTML() {
-  if (!ADMIN_FILES.length) {
-    return `<div class="empty"><div class="icon">${icon("film", 46)}</div><h3>No files yet</h3>
-      <p>Use the <b>Add file</b> tab above, or send files to the bot.</p></div>`;
-  }
-  const rows = [...ADMIN_FILES].sort((a, b) => b.created_at - a.created_at).map((f, i) => {
+let AF_Q = "", AF_KIND = "all";
+
+function afileRowHTML(f, i) {
+  {
     const isTS = (f.mime || "").toLowerCase().includes("mp2t");
     return `
     <div class="afile" style="animation-delay:${Math.min(i * 0.04, 0.3)}s">
@@ -1110,10 +1193,69 @@ function adminFilesHTML() {
           title="Delete">${icon("trash", 14)}</button>
       </div>
     </div>`;
-  }).join("");
+  }
+}
+
+function adminFilesHTML() {
+  if (!ADMIN_FILES.length) {
+    return `<div class="empty"><div class="icon">${icon("film", 46)}</div><h3>No files yet</h3>
+      <p>Use the <b>Add file</b> tab above, or send files to the bot.</p></div>`;
+  }
   const opts = [...new Set(ADMIN_SERIES.map(s => s.name))]
     .map(n => `<option value="${esc(n)}">`).join("");
-  return `<datalist id="agList">${opts}</datalist><div class="afile-list">${rows}</div>`;
+  return `<datalist id="agList">${opts}</datalist>
+    <div class="afile-tools">
+      <input id="afSearch" placeholder="Search files / series / uuid…" value="${esc(AF_Q)}" spellcheck="false">
+      <select id="afKind" aria-label="Filter">
+        <option value="all">All files</option>
+        <option value="youtube">YouTube</option>
+        <option value="telegram">Telegram</option>
+        <option value="ts">TS files</option>
+      </select>
+      <span class="afile-count" id="afCount"></span>
+    </div>
+    <div class="afile-list" id="afList"></div>`;
+}
+
+function renderAdminFileList() {
+  const list = $("#afList");
+  if (!list) return;
+  const q = AF_Q.trim().toLowerCase();
+  let rows = [...ADMIN_FILES].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  if (q) {
+    rows = rows.filter(f => (f.name || "").toLowerCase().includes(q)
+      || (f.series || "").toLowerCase().includes(q)
+      || (f.uuid || "").toLowerCase().includes(q));
+  }
+  if (AF_KIND === "youtube") rows = rows.filter(f => f.source === "youtube");
+  else if (AF_KIND === "telegram") rows = rows.filter(f => f.source !== "youtube");
+  else if (AF_KIND === "ts") rows = rows.filter(f => (f.mime || "").toLowerCase().includes("mp2t"));
+  const cnt = $("#afCount");
+  if (cnt) cnt.textContent = rows.length + " / " + ADMIN_FILES.length;
+  list.innerHTML = rows.length
+    ? rows.map((f, i) => afileRowHTML(f, i)).join("")
+    : `<p class="hint" style="padding:14px 2px;">No files match this filter.</p>`;
+  wireFileRows(list);
+}
+
+function wireFileRows(root) {
+  root.querySelectorAll("[data-group]").forEach(b =>
+    b.addEventListener("click", () =>
+      openGroupModal(b.dataset.group, b.dataset.series, +b.dataset.season, +b.dataset.episode)));
+  root.querySelectorAll("[data-rename]").forEach(b =>
+    b.addEventListener("click", () => openRenameModal(b.dataset.rename, b.dataset.name)));
+  root.querySelectorAll("[data-del]").forEach(b =>
+    b.addEventListener("click", () => openDeleteModal(b.dataset.del, b.dataset.name)));
+}
+
+function wireAdminFiles() {
+  const s = $("#afSearch"), k = $("#afKind");
+  if (s) s.addEventListener("input", () => { AF_Q = s.value; renderAdminFileList(); });
+  if (k) {
+    k.value = AF_KIND;
+    k.addEventListener("change", () => { AF_KIND = k.value; renderAdminFileList(); });
+  }
+  renderAdminFileList();
 }
 
 /* ---------------- add tab ---------------- */
@@ -1582,7 +1724,7 @@ function openEpisodesModal(name) {
 function renderAdminTab() {
   const body = $("#adminBody");
   if (!body) return;
-  if (ADMIN_TAB === "files") body.innerHTML = adminFilesHTML();
+  if (ADMIN_TAB === "files") { body.innerHTML = adminFilesHTML(); wireAdminFiles(); }
   else if (ADMIN_TAB === "add") { body.innerHTML = adminAddHTML(); wireAdminAdd(); }
   else if (ADMIN_TAB === "youtube") { body.innerHTML = adminYoutubeHTML(); wireAdminYoutube(); }
   else body.innerHTML = adminContentHTML();
@@ -1591,13 +1733,6 @@ function renderAdminTab() {
     b.addEventListener("click", () => openSeriesEdit(b.dataset.edit)));
   body.querySelectorAll("[data-eps]").forEach(b =>
     b.addEventListener("click", () => openEpisodesModal(b.dataset.eps)));
-  body.querySelectorAll("[data-group]").forEach(b =>
-    b.addEventListener("click", () =>
-      openGroupModal(b.dataset.group, b.dataset.series, +b.dataset.season, +b.dataset.episode)));
-  body.querySelectorAll("[data-rename]").forEach(b =>
-    b.addEventListener("click", () => openRenameModal(b.dataset.rename, b.dataset.name)));
-  body.querySelectorAll("[data-del]").forEach(b =>
-    b.addEventListener("click", () => openDeleteModal(b.dataset.del, b.dataset.name)));
 }
 
 async function renderAdmin() {

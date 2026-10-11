@@ -659,8 +659,11 @@ input { font-family: inherit; }
 
 @media (max-width: 720px) {
   #tabbar { display: flex; }
-  body { padding-bottom: 64px; }
-  .toast { bottom: 84px; }          /* clear of the bottom tab bar */
+  /* the fixed tab bar is ~72px tall — keep page content (and the last
+     episode row / footer) clear of it */
+  body { padding-bottom: 92px; }
+  .toast { bottom: 96px; }
+  #footer { padding-bottom: 20px; }
 }
 
 /* ---------------- schedule / settings pages ---------------- */
@@ -1260,4 +1263,58 @@ body::before { animation: glowDrift 16s ease-in-out infinite alternate; }
   .pv-time { min-width: 76px; font-size: 11.5px; }
   .pv-bar { gap: 4px; padding: 22px 8px 8px; }
   .pv-btn { width: 34px; height: 34px; }
+}
+
+/* ---------------- up-next overlay (auto-play next episode) ---------------- */
+
+.pv-next {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(to top, rgba(3, 8, 16, .82), rgba(3, 8, 16, .55));
+  backdrop-filter: blur(2px);
+  animation: fadeIn .25s ease-out;
+}
+.pv-next-card {
+  background: var(--panel); border: 1px solid rgba(0, 174, 239, .35);
+  border-radius: 14px; padding: 16px 18px; max-width: 86%;
+  text-align: center; box-shadow: var(--shadow), 0 0 40px rgba(0, 174, 239, .18);
+}
+.pv-next-lbl {
+  display: block; font-size: 10.5px; font-weight: 700; letter-spacing: 2px;
+  text-transform: uppercase; color: var(--blue2); margin-bottom: 6px;
+}
+.pv-next-card b {
+  display: block; font-size: 14px; font-weight: 600; color: var(--text);
+  margin-bottom: 12px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pv-next-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.pv-next-row .btn { padding: 8px 14px; font-size: 12.5px; }
+
+/* ---------------- admin files toolbar ---------------- */
+
+.afile-tools {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; flex-wrap: wrap;
+}
+.afile-tools input {
+  flex: 1; min-width: 160px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 9px 12px; color: var(--text); font-size: 13px; outline: 0;
+}
+.afile-tools input:focus { border-color: rgba(0, 174, 239, .6); }
+.afile-tools select {
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 9px 10px; color: var(--text); font-size: 12.5px; outline: 0;
+}
+.afile-count { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+
+/* ---------------- episode thumbnails (series page) ---------------- */
+
+.ep-thumb {
+  flex: none; width: 68px; height: 38px; border-radius: 7px; overflow: hidden;
+  border: 1px solid var(--line); background: #0a1326;
+}
+.ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 720px) {
+  .ep-thumb { width: 56px; height: 32px; }
 }
