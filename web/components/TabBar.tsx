@@ -18,11 +18,12 @@ export default function TabBar() {
       {TABS.map(t => {
         const active = t.href === "/" ? path === "/" : path.startsWith(t.href);
         return (
-          <Link key={t.href} href={t.href}
-            className={`flex flex-1 flex-col items-center gap-0.5 rounded-[10px] px-1 py-1.5
+          <Link key={t.href} href={t.href} className="flex flex-1 justify-center px-1 py-1.5">
+            <span className={`flex flex-col items-center gap-0.5 rounded-xl px-4 py-1 transition
               ${active ? "bg-gold/10 text-gold" : "text-muted"}`}>
-            <Icon name={t.icon} size={21} />
-            <span className="text-[10.5px] font-semibold tracking-wide">{t.label}</span>
+              <Icon name={t.icon} size={21} />
+              <span className="text-[10.5px] font-semibold tracking-wide">{t.label}</span>
+            </span>
           </Link>
         );
       })}
