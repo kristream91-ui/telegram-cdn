@@ -92,7 +92,8 @@ export default function Hero({ slides, featured, metaOf, progressOf }: {
                              text-[11px] font-bold tracking-[2px] text-[#241800]">FREE</span>
           </h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[13.5px] leading-relaxed text-[#d3ddec]">
-            A hand-picked Hindi dub anime library. New episodes are added regularly — check back soon!
+            Your library is empty. Send an MP4 or TS file to the Ani77 Telegram bot and it will
+            show up here, ready to stream.
           </p>
           <Link href="/schedule" className="btn-primary mt-6">
             <Icon name="calendar" size={15} /> See the schedule
