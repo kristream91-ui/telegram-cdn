@@ -797,6 +797,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Ani77", lifespan=lifespan)
+
+# The web frontend may live on another origin (e.g. Vercel), so allow it to
+# call this API. Auth uses bearer tokens (not cookies), so a wildcard origin
+# is safe here.
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
+)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 

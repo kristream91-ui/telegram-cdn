@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    min-height: 100vh;
+  }
+  /* subtle brand glow at the top, like the logo's ring */
+  body::before {
+    content: "";
+    position: fixed; inset: 0 0 auto 0; height: 380px;
+    background: radial-gradient(60% 100% at 50% -20%, rgba(0,174,239,.14), transparent 70%);
+    pointer-events: none; z-index: 0;
+    animation: glowDrift 16s ease-in-out infinite alternate;
+  }
+  ::selection { background: rgba(0,174,239,.35); }
+  ::-webkit-scrollbar { height: 8px; width: 10px; }
+  ::-webkit-scrollbar-track { background: #050a14; }
+  ::-webkit-scrollbar-thumb { background: #16233c; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #1e3050; }
+}
+
+@keyframes glowDrift { from { opacity: .65 } to { opacity: 1 } }
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13.5px] font-semibold
+           whitespace-nowrap transition duration-150 active:scale-[.97];
+  }
+  .btn-primary {
+    @apply btn text-[#04121c] shadow-[0_4px_18px_rgba(0,174,239,.35)]
+           bg-gradient-to-br from-blue to-blue-2 hover:-translate-y-px
+           hover:shadow-[0_6px_26px_rgba(0,174,239,.55)];
+  }
+  .btn-gold {
+    @apply btn text-[#241800] shadow-[0_4px_18px_rgba(255,184,0,.3)]
+           bg-gradient-to-br from-[#f5a300] to-gold hover:-translate-y-px
+           hover:shadow-[0_6px_24px_rgba(255,184,0,.45)];
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-panel2/75 text-ink
+           hover:border-blue/50 hover:bg-panel2;
+  }
+  .icon-btn {
+    @apply flex h-10 w-10 flex-none items-center justify-center rounded-[10px]
+           border border-line bg-panel2/75 text-ink transition
+           hover:border-blue/50 hover:bg-panel2 active:scale-95;
+  }
+  .pill {
+    @apply rounded-full border border-line bg-panel2/80 px-2 py-[2px] text-[10px]
+           font-semibold tracking-wide text-[#aebadb];
+  }
+  .h-scroll { @apply flex gap-3.5 overflow-x-auto overflow-y-visible px-[4vw] py-1.5 pb-[18px]; scrollbar-width: none; }
+  .h-scroll::-webkit-scrollbar { display: none; }
+  .clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
