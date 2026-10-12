@@ -9,7 +9,9 @@ export default function MediaCard({ f, progress }: {
   progress?: { pos: number; dur: number } | null;
 }) {
   const pct = progress && progress.dur ? Math.min(100, (progress.pos / progress.dur) * 100) : 0;
-  const ep = f.series && f.episode ? `S${f.season || 1}E${f.episode}` : "";
+  const ep = f.series && f.episode ? `S${f.season || 1} · E${f.episode}` : "";
+  const isNew = !!f.created_at && (Date.now() / 1000 - f.created_at) < 7 * 86400;
+  const meta = [f.series ? "Series" : "Video", ep].filter(Boolean).join(" • ");
 
   return (
     <Link href={`/watch/${f.uuid}`} title={f.name}
@@ -46,8 +48,14 @@ export default function MediaCard({ f, progress }: {
               {fmtDur(f.duration)}
             </span>
           ) : null}
+          {isNew && (
+            <span className="absolute left-2 top-2 rounded-md border border-cyan/50 bg-cyan/15 px-2 py-0.5
+                             text-[10px] font-bold uppercase tracking-wide text-cyan shadow-[0_0_14px_rgba(34,224,255,.35)] backdrop-blur">
+              New
+            </span>
+          )}
           {ep ? (
-            <span className="absolute left-2 top-2 rounded-md border border-line bg-[rgba(4,7,15,.78)]
+            <span className="absolute right-2 top-2 rounded-md border border-line bg-[rgba(4,7,15,.78)]
                              px-2 py-0.5 text-[10.5px] font-semibold text-[#c8d8f2] backdrop-blur">
               {ep}
             </span>
@@ -63,7 +71,9 @@ export default function MediaCard({ f, progress }: {
       <div className="mt-2 truncate text-[13px] font-semibold transition group-hover:text-cyan">
         {displayName(f)}
       </div>
-      <div className="mt-0.5 text-[11.5px] text-muted">{fmtSize(f.size)}</div>
+      <div className="mt-0.5 truncate text-[11.5px] text-muted">
+        {meta}{f.size ? ` • ${fmtSize(f.size)}` : ""}
+      </div>
     </Link>
   );
 }

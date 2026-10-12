@@ -7,7 +7,7 @@ import { loadUser, logout as clearUser } from "@/lib/api";
 
 const LINKS = [
   { href: "/", label: "Home", icon: "home" },
-  { href: "/search", label: "Search", icon: "search" },
+  { href: "/explore", label: "Explore", icon: "compass" },
   { href: "/downloads", label: "Downloads", icon: "download" },
   { href: "/settings", label: "Settings", icon: "sliders" },
   { href: "/schedule", label: "Schedule & News", icon: "calendar" },

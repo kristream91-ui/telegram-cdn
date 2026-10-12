@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import Hero from "@/components/Hero";
 import Row from "@/components/Row";
 import MediaCard from "@/components/MediaCard";
 import SeriesCard from "@/components/SeriesCard";
 import Icon from "@/components/Icon";
 import { HeroSkeleton, RowSkeleton } from "@/components/Skeleton";
-import { getFiles, getProgress, getSeries, loadUser } from "@/lib/api";
+import { bannerUrl, getFiles, getProgress, getSeries, loadUser } from "@/lib/api";
 import { buildSeries } from "@/lib/series";
 import type { MediaFile, Progress, SeriesMeta, SessionUser } from "@/lib/types";
 
@@ -82,6 +83,10 @@ export default function HomePage() {
   }
 
   const heroSlides = shownSeries.filter(s => s.banner);
+  const railBanner = (() => {
+    const withBanner = shownSeries.find(s => s.banner);
+    return withBanner ? bannerUrl(withBanner.name) : null;
+  })();
   const featured = shown.find(f => f.has_thumb) || shown[0];
 
   return (
@@ -89,23 +94,26 @@ export default function HomePage() {
       <Hero slides={heroSlides} featured={featured} metaOf={metaOf} progressOf={progressOf} />
 
       {user && watching.length > 0 && (
-        <Row title="Continue Watching" count={watching.length}>
+        <Row title="Continue Watching" count={watching.length} href="/explore">
           {watching.map(f => <MediaCard key={f.uuid} f={f} progress={progressOf(f.uuid)} />)}
         </Row>
       )}
 
       {shown.length > 0 && (
-        <Row title="Recently Added" count={shown.length}>
+        <Row title="Recently Added" count={shown.length} banner={railBanner} href="/explore">
           {shown.slice(0, 14).map(f => <MediaCard key={f.uuid} f={f} progress={progressOf(f.uuid)} />)}
         </Row>
       )}
 
       {shownSeries.length > 0 && (
-        <section className="my-6 animate-rise px-[4vw]">
+        <section className="my-7 animate-rise px-[4vw]">
           <div className="flex items-center gap-2.5 pb-3">
             <span className="h-5 w-1 rounded-full bg-logo-grad shadow-[0_0_12px_rgba(34,224,255,.65)]" />
             <h2 className="font-display text-[21px] font-semibold tracking-[1px]">Series</h2>
             <span className="rounded-full border border-line px-2 py-0.5 text-[10.5px] text-muted">{shownSeries.length}</span>
+            <Link href="/explore" className="ml-auto flex items-center gap-1 text-[12px] text-muted transition hover:text-cyan">
+              See all <Icon name="chevR" size={13} />
+            </Link>
           </div>
           <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {shownSeries.map(s => <SeriesCard key={s.name} s={s} />)}

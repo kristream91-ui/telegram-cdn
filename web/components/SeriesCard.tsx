@@ -5,6 +5,7 @@ import Icon from "./Icon";
 
 export default function SeriesCard({ s }: { s: SeriesGroup }) {
   const seasons = [...new Set(s.eps.map(e => e.season).filter(Boolean))];
+  const isNew = !!s.latest && (Date.now() / 1000 - s.latest) < 7 * 86400;
   const badge = seasons.length > 1 ? `${seasons.length} Seasons` : `S${seasons[0] || 1}`;
   const img = s.poster || (s.thumbUuid ? thumbUrl(s.thumbUuid) : "");
 
@@ -34,6 +35,12 @@ export default function SeriesCard({ s }: { s: SeriesGroup }) {
               <Icon name="play" size={15} />
             </span>
           </span>
+          {isNew && (
+            <span className="absolute left-2 top-2 rounded-md border border-cyan/50 bg-cyan/15 px-2 py-0.5
+                             text-[10px] font-bold uppercase tracking-wide text-cyan shadow-[0_0_14px_rgba(34,224,255,.35)] backdrop-blur">
+              New
+            </span>
+          )}
           <span className="absolute bottom-2 right-2 flex items-center gap-1.5">
             <span className="rounded-md border border-gold/40 bg-[rgba(4,7,15,.82)] px-2 py-0.5
                              text-[10.5px] font-semibold text-gold shadow-goldglow backdrop-blur">
@@ -47,8 +54,8 @@ export default function SeriesCard({ s }: { s: SeriesGroup }) {
         </div>
       </div>
       <div className="mt-2 truncate text-[13px] font-semibold transition group-hover:text-cyan">{s.name}</div>
-      <div className="mt-0.5 text-[11.5px] text-muted">
-        {s.eps.length} episode{s.eps.length > 1 ? "s" : ""}
+      <div className="mt-0.5 truncate text-[11.5px] text-muted">
+        Series • {s.eps.length} episode{s.eps.length > 1 ? "s" : ""}
       </div>
     </Link>
   );

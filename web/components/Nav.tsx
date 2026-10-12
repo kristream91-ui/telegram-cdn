@@ -24,18 +24,21 @@ export default function Nav({ onMenu }: { onMenu: () => void }) {
           <Logo size={40} />
         </Link>
 
-        <button onClick={() => router.push("/search")}
+        <button onClick={() => router.push("/explore")}
           className="group ml-4 hidden max-w-[430px] flex-1 items-center gap-2.5 rounded-full border border-line
                      bg-panel2/40 px-4 py-2.5 text-left text-[13px] text-muted backdrop-blur
                      transition duration-200 hover:border-cyan/40 hover:bg-panel2/70 hover:shadow-[0_0_22px_rgba(34,224,255,.15)] md:flex">
           <Icon name="search" size={16} />
-          <span className="flex-1">Search series, episodes, genres…</span>
+          <span className="flex-1">Explore series, episodes, genres…</span>
           <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-muted">⌘K</span>
         </button>
 
         <div className="ml-auto flex items-center gap-2">
-          <Link href="/search" className="icon-btn md:hidden" aria-label="Search">
+          <Link href="/explore" className="icon-btn md:hidden" aria-label="Explore">
             <Icon name="search" size={17} />
+          </Link>
+          <Link href="/login" className="btn-ghost hidden px-3.5 py-2 text-[12.5px] md:inline-flex">
+            <Icon name="user" size={15} /> Sign in
           </Link>
           <button className="icon-btn" aria-label="Menu" onClick={onMenu}>
             <Icon name="menu" size={17} />
