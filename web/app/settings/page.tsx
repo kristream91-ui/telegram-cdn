@@ -126,6 +126,7 @@ export default function SettingsPage() {
       <Card title="About">
         <Row icon="shield" title="Ani77" sub="Your own OTT library, powered by Telegram (Pyrogram). Nothing is re-hosted." />
         <Row icon="link" title="Backend" sub="Python · FastAPI · Pyrogram bot" />
+        <Row icon="tv" title="Frontend" sub="Next.js 14 · React 18 · Tailwind CSS 3 · TypeScript" />
       </Card>
 
       <p className="pb-4 text-center text-[11.5px] text-muted">Ani77 · Powered by Telegram</p>
