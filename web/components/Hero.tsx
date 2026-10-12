@@ -133,7 +133,7 @@ export default function Hero({ slides, featured, metaOf, progressOf }: {
             <Link href="/downloads" className="btn-primary px-5 py-3">
               <Icon name="download" size={15} /> Go to Downloads
             </Link>
-            <Link href="/search" className="btn-ghost px-5 py-3">
+            <Link href="/explore" className="btn-ghost px-5 py-3">
               <Icon name="search" size={15} /> Browse library
             </Link>
           </div>
