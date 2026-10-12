@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import Player from "@/components/Player";
 import Icon from "@/components/Icon";
+import { CardSkeleton } from "@/components/Skeleton";
 import { downloadUrl, getFile, getFiles, streamUrl, thumbUrl } from "@/lib/api";
 import { useProgress, useUser } from "@/lib/useProgress";
 import { fmtSize } from "@/lib/format";
@@ -53,9 +54,25 @@ export default function WatchPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-[1400px] px-[4vw] py-24 text-center text-muted">
-        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-blue-2" />
-        <p className="mt-4 text-[13.5px]">Loading…</p>
+      <div className="mx-auto max-w-[1440px] px-[4vw] pt-2">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div>
+            <div className="skeleton aspect-video w-full rounded-2xl" />
+            <div className="skeleton mt-4 h-8 w-[65%] rounded-lg" />
+            <div className="mt-3 flex gap-2">
+              <div className="skeleton h-6 w-28 rounded-full" />
+              <div className="skeleton h-6 w-20 rounded-full" />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="skeleton aspect-video w-[96px] flex-none rounded-xl" />
+                <div className="flex-1"><div className="skeleton h-3 w-[80%] rounded-md" /></div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -63,10 +80,12 @@ export default function WatchPage() {
   if (err || !file) {
     return (
       <div className="mx-auto max-w-[520px] px-[4vw] py-24 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-line bg-panel2 text-accent">
-          <Icon name="alert" size={32} />
+        <div className="grad-frame mx-auto mb-5 h-16 w-16">
+          <div className="flex h-full w-full items-center justify-center bg-panel text-gold">
+            <Icon name="alert" size={30} />
+          </div>
         </div>
-        <h2 className="font-display text-3xl tracking-wide">Video not found</h2>
+        <h2 className="font-display text-3xl font-semibold italic tracking-wide">Video not found</h2>
         <p className="mt-2 text-[13.5px] text-muted">{err || "This file may have been removed."}</p>
         <Link className="btn-ghost mt-5" href="/"><Icon name="arrowL" size={15} /> Back home</Link>
       </div>
@@ -90,8 +109,8 @@ export default function WatchPage() {
           <Player file={file} next={next} startPos={startPos} onSave={save}
             onEnded={() => { if (next) location.href = `/watch/${next.uuid}`; }} />
 
-          <h1 className="mt-4 font-display text-[clamp(22px,5vw,36px)] leading-tight tracking-wide">
-            {clean(file.name)}
+          <h1 className="mt-5 font-display text-[clamp(23px,5vw,38px)] font-bold italic leading-tight tracking-[0.5px]">
+            <span className="text-grad">{clean(file.name)}</span>
           </h1>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -120,9 +139,11 @@ export default function WatchPage() {
 
         {siblings.length > 1 && (
           <aside className="lg:pt-1">
-            <h2 className="section-title mb-3">
-              Episodes <span className="font-sans text-xs font-normal text-muted">{siblings.length}</span>
-            </h2>
+            <div className="mb-3 flex items-center gap-2.5">
+              <span className="h-5 w-1 rounded-full bg-logo-grad shadow-[0_0_12px_rgba(34,224,255,.65)]" />
+              <h2 className="font-display text-[20px] font-semibold tracking-[1px]">Episodes</h2>
+              <span className="rounded-full border border-line px-2 py-0.5 text-[10.5px] text-muted">{siblings.length}</span>
+            </div>
             <div className="grid max-h-[560px] gap-2 overflow-y-auto pr-1">
               {siblings.map((s, i) => {
                 const here = s.uuid === uuid;

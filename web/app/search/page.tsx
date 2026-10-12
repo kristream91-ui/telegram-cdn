@@ -4,6 +4,7 @@ import Link from "next/link";
 import MediaCard from "@/components/MediaCard";
 import SeriesCard from "@/components/SeriesCard";
 import Icon from "@/components/Icon";
+import { CardSkeleton } from "@/components/Skeleton";
 import { getFiles, getProgress, getSeries, loadUser } from "@/lib/api";
 import { buildSeries } from "@/lib/series";
 import type { MediaFile, Progress, SeriesMeta } from "@/lib/types";
@@ -144,8 +145,8 @@ export default function SearchPage() {
       )}
 
       {loading && (
-        <div className="py-24 text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-blue-2" />
+        <div className="mt-8 grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {Array.from({ length: 10 }).map((_, i) => <CardSkeleton key={i} wide />)}
         </div>
       )}
 

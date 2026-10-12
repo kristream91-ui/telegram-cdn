@@ -5,6 +5,7 @@ import Row from "@/components/Row";
 import MediaCard from "@/components/MediaCard";
 import SeriesCard from "@/components/SeriesCard";
 import Icon from "@/components/Icon";
+import { HeroSkeleton, RowSkeleton } from "@/components/Skeleton";
 import { getFiles, getProgress, getSeries, loadUser } from "@/lib/api";
 import { buildSeries } from "@/lib/series";
 import type { MediaFile, Progress, SeriesMeta, SessionUser } from "@/lib/types";
@@ -48,9 +49,12 @@ export default function HomePage() {
   if (error) {
     return (
       <div className="mx-auto max-w-[560px] px-[4vw] py-24 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl
-                        border border-line bg-panel2 text-accent"><Icon name="alert" size={34} /></div>
-        <h2 className="font-display text-3xl tracking-wide">Couldn&apos;t reach the server</h2>
+        <div className="grad-frame mx-auto mb-5 h-16 w-16">
+          <div className="flex h-full w-full items-center justify-center bg-panel text-gold">
+            <Icon name="alert" size={30} />
+          </div>
+        </div>
+        <h2 className="font-display text-3xl font-semibold italic tracking-wide">Couldn&apos;t reach the server</h2>
         <p className="mt-2 text-[13.5px] text-muted">
           {error} — the free server may be waking up. Give it a few seconds and retry.
         </p>
@@ -63,9 +67,10 @@ export default function HomePage() {
 
   if (files === null) {
     return (
-      <div className="mx-auto max-w-[1240px] px-[4vw] py-24 text-center text-muted">
-        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-blue-2" />
-        <p className="mt-4 text-[13.5px]">Loading the library…</p>
+      <div className="mx-auto max-w-[1440px]">
+        <HeroSkeleton />
+        <RowSkeleton n={6} />
+        <RowSkeleton n={6} />
       </div>
     );
   }
@@ -97,10 +102,11 @@ export default function HomePage() {
 
       {shownSeries.length > 0 && (
         <section className="my-6 animate-rise px-[4vw]">
-          <h2 className="flex items-baseline gap-3 pb-3 font-display text-[22px] tracking-[1.5px]">
-            Series
-            <span className="font-sans text-xs font-normal text-muted">{shownSeries.length}</span>
-          </h2>
+          <div className="flex items-center gap-2.5 pb-3">
+            <span className="h-5 w-1 rounded-full bg-logo-grad shadow-[0_0_12px_rgba(34,224,255,.65)]" />
+            <h2 className="font-display text-[21px] font-semibold tracking-[1px]">Series</h2>
+            <span className="rounded-full border border-line px-2 py-0.5 text-[10.5px] text-muted">{shownSeries.length}</span>
+          </div>
           <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {shownSeries.map(s => <SeriesCard key={s.name} s={s} />)}
           </div>
@@ -109,10 +115,11 @@ export default function HomePage() {
 
       {standalone.length > 0 && (
         <section className="my-6 animate-rise px-[4vw]">
-          <h2 className="flex items-baseline gap-3 pb-3 font-display text-[22px] tracking-[1.5px]">
-            Movies &amp; More
-            <span className="font-sans text-xs font-normal text-muted">{standalone.length}</span>
-          </h2>
+          <div className="flex items-center gap-2.5 pb-3">
+            <span className="h-5 w-1 rounded-full bg-logo-grad shadow-[0_0_12px_rgba(34,224,255,.65)]" />
+            <h2 className="font-display text-[21px] font-semibold tracking-[1px]">Movies &amp; More</h2>
+            <span className="rounded-full border border-line px-2 py-0.5 text-[10.5px] text-muted">{standalone.length}</span>
+          </div>
           <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {standalone.map(f => (
               <div key={f.uuid} className="[&>a]:w-full"><MediaCard f={f} progress={progressOf(f.uuid)} /></div>

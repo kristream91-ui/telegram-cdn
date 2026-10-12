@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Icon from "@/components/Icon";
-import { API_BASE, login, saveUser, signup } from "@/lib/api";
+import Logo from "@/components/Logo";
+import { login, saveUser, signup } from "@/lib/api";
 
 /* rules mirror the API exactly so the user never hits a server error */
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
@@ -116,13 +117,14 @@ export default function LoginPage() {
   return (
     <div className="mx-auto flex max-w-[440px] flex-col px-[4vw] pb-12 pt-3">
       <div className="mb-6 text-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={`${API_BASE}/static/logo.webp`} alt="Ani77"
-          className="mx-auto h-[96px] w-[96px] animate-floaty rounded-full object-cover
-                     shadow-[0_0_0_3px_rgba(12,132,252,.38),0_0_46px_rgba(12,132,252,.45)]" />
-        <h1 className="mt-4 font-display text-[36px] leading-none tracking-[2.5px]">
-          ANI<span className="text-accent">77</span>
+        <div className="mx-auto mb-4 flex justify-center animate-floaty">
+          <Logo size={104} withWord={false} />
+        </div>
+        <h1 className="font-display text-[38px] font-bold italic leading-none tracking-[1.5px]">
+          <span className="text-white">ANI</span>
+          <span className="bg-gradient-to-r from-blue-2 to-cyan bg-clip-text text-transparent">77</span>
         </h1>
+        <p className="mt-1.5 font-display text-[9.5px] uppercase tracking-[4px] text-cyan/80">Cosmic Anime World</p>
         <p className="mx-auto mt-2 max-w-[300px] text-[12.5px] leading-relaxed text-muted">
           {mode === "in"
             ? "Welcome back. Sign in to pick up where you left off."
